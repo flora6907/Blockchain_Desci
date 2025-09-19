@@ -11,8 +11,8 @@
       @update:collapsed="isCollapsed = $event"
     >
       <div class="logo-container" @click="goToHome">
-        <span v-if="!isCollapsed">DeSci-Proof</span>
-        <span v-else>DS</span>
+                    <span v-if="!isCollapsed">Verno</span>
+                  <span v-else>V</span>
       </div>
       <div class="user-info-container">
         <n-avatar round size="large" class="user-avatar">

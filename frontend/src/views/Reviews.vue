@@ -22,20 +22,75 @@
 
     <!-- Statistics -->
     <div class="stats-section">
-      <n-grid :cols="4" :x-gap="24">
-        <n-gi>
-          <n-statistic label="Total Assignments" :value="reviews.length" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Pending" :value="pendingCount" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="In Progress" :value="inProgressCount" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Completed" :value="completedCount" />
-        </n-gi>
-      </n-grid>
+      <div class="stats-grid">
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === null }"
+          hoverable
+          @click="handleStatClick(null)"
+        >
+          <div class="stat-content">
+            <div class="stat-icon">
+              <n-icon :component="DocumentTextOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ reviews.length }}</h3>
+              <p>Total Assignments</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Pending' }"
+          hoverable
+          @click="handleStatClick('Pending')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon pending">
+              <n-icon :component="TimeOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ pendingCount }}</h3>
+              <p>Pending</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'In Progress' }"
+          hoverable
+          @click="handleStatClick('In Progress')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon in-progress">
+              <n-icon :component="CreateOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ inProgressCount }}</h3>
+              <p>In Progress</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Completed' }"
+          hoverable
+          @click="handleStatClick('Completed')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon completed">
+              <n-icon :component="CheckmarkCircleOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ completedCount }}</h3>
+              <p>Completed</p>
+            </div>
+          </div>
+        </n-card>
+      </div>
     </div>
 
     <!-- Filters -->
@@ -112,7 +167,7 @@
           v-for="review in paginatedReviews"
           :key="review.id"
           class="review-card"
-          :class="{ 'urgent': review.urgency === 'High' }"
+          :class="{ 'urgent': review.urgency === 'High' && review.status !== 'Completed' }"
           @click="viewReview(review)"
         >
           <div class="review-header">
@@ -133,7 +188,7 @@
                 {{ review.status }}
               </n-tag>
               <n-tag 
-                v-if="review.urgency === 'High'"
+                v-if="review.urgency === 'High' && review.status !== 'Completed'"
                 type="error" 
                 size="small"
                 class="urgency-tag"
@@ -150,8 +205,8 @@
               <div class="detail-item">
                 <n-icon :component="CalendarOutline" class="detail-icon" />
                 <span>Deadline: {{ formatDate(review.deadline) }}</span>
-                <span :class="getDaysLeftClass(review.deadline)" class="days-left">
-                  ({{ getDaysLeft(review.deadline) }})
+                <span :class="getDaysLeftClass(review.deadline, review.status)" class="days-left">
+                  ({{ getDaysLeft(review.deadline, review.status) }})
                 </span>
               </div>
               <div class="detail-item">
@@ -184,7 +239,7 @@
               <div class="progress-info">
                 <span class="progress-label">{{ getProgressLabel(review.status) }}</span>
                 <n-progress 
-                  :percentage="getProgressPercentage(review.status)"
+                  :percentage="getProgressPercentage(review.status, review.progress)"
                   :status="getProgressStatus(review.status)"
                   :show-indicator="false"
                   class="progress-bar"
@@ -279,7 +334,7 @@ import {
 import {
   RefreshOutline, SearchOutline, CalendarOutline, DocumentTextOutline,
   TimeOutline, PlayOutline, CreateOutline, EyeOutline, DownloadOutline,
-  EllipsisHorizontalOutline, ChatbubbleEllipsesOutline, CloseOutline
+  EllipsisHorizontalOutline, ChatbubbleEllipsesOutline, CloseOutline, CheckmarkCircleOutline
 } from '@vicons/ionicons5'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -478,7 +533,10 @@ const formatDate = (date) => {
   return dayjs(date).format('MMM DD, YYYY')
 }
 
-const getDaysLeft = (deadline) => {
+const getDaysLeft = (deadline, status = null) => {
+  // If completed, don't show overdue
+  if (status === 'Completed') return 'Completed'
+  
   const days = dayjs(deadline).diff(dayjs(), 'day')
   if (days < 0) return 'Overdue'
   if (days === 0) return 'Due today'
@@ -486,7 +544,10 @@ const getDaysLeft = (deadline) => {
   return `${days} days left`
 }
 
-const getDaysLeftClass = (deadline) => {
+const getDaysLeftClass = (deadline, status = null) => {
+  // If completed, use success class
+  if (status === 'Completed') return 'completed'
+  
   const days = dayjs(deadline).diff(dayjs(), 'day')
   if (days < 0) return 'overdue'
   if (days <= 2) return 'urgent'
@@ -516,7 +577,13 @@ const getProgressLabel = (status) => {
   }
 }
 
-const getProgressPercentage = (status) => {
+const getProgressPercentage = (status, progress = null) => {
+  // If we have actual progress data, use it
+  if (progress !== null && progress !== undefined && typeof progress === 'number') {
+    return Math.max(0, Math.min(100, progress))
+  }
+  
+  // Fallback to status-based progress
   switch (status) {
     case 'Pending': return 0
     case 'In Progress': return 50
@@ -569,8 +636,41 @@ const viewReview = (review) => {
   router.push(`/reviews/${review.id}`)
 }
 
-const startReview = (review) => {
-  router.push(`/reviews/${review.id}/review`)
+const startReview = async (review) => {
+  try {
+    // Call backend API to start the review (change status to In Progress)
+    const response = await fetch(`http://localhost:3000/api/reviews/${review.id}/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const updatedReview = await response.json()
+    console.log('Review started successfully:', updatedReview)
+    
+    // Update the local reviews data
+    const reviewIndex = reviews.value.findIndex(r => r.id === review.id)
+    if (reviewIndex !== -1) {
+      reviews.value[reviewIndex] = {
+        ...reviews.value[reviewIndex],
+        status: 'In Progress',
+        startedAt: updatedReview.startedAt
+      }
+    }
+    
+    message.success('Review started successfully')
+    
+    // Navigate to review form
+    router.push(`/reviews/${review.id}/review`)
+  } catch (error) {
+    console.error('Failed to start review:', error)
+    message.error('Failed to start review')
+  }
 }
 
 const continueReview = (review) => {
@@ -600,6 +700,11 @@ const handleReviewAction = (key) => {
       // TODO: Implement decline logic
       break
   }
+}
+
+const handleStatClick = (status) => {
+  selectedStatus.value = status
+  currentPage.value = 1
 }
 
 onMounted(() => {
@@ -659,6 +764,72 @@ onMounted(() => {
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 32px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  border-color: #58a6ff;
+  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.1);
+}
+
+.stat-card.active {
+  border-color: #58a6ff;
+  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.1);
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-icon {
+  font-size: 36px;
+  color: #58a6ff;
+}
+
+.stat-icon.pending {
+  color: #ff8c42;
+}
+
+.stat-icon.in-progress {
+  color: #238636;
+}
+
+.stat-icon.completed {
+  color: #4ade80;
+}
+
+.stat-info h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #c9d1d9;
+  margin: 0;
+}
+
+.stat-info p {
+  font-size: 0.875rem;
+  color: #8b949e;
+  margin: 0;
 }
 
 .filters-section {
@@ -810,6 +981,10 @@ onMounted(() => {
 
 .days-left.urgent {
   color: #ff8c42;
+}
+
+.days-left.completed {
+  color: #4ade80;
 }
 
 .days-left.warning {

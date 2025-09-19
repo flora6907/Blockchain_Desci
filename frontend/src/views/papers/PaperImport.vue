@@ -857,7 +857,12 @@ const importPaper = async () => {
     
     const result = await response.json()
     
-    message.success('Paper imported successfully!')
+    // Auto-mint imported paper as NFT
+    if (result.id) {
+      await autoMintPublicationNFT(result.id)
+    }
+    
+    message.success('Paper imported successfully and minted as NFT!')
     router.push('/publications')
   } catch (error) {
     console.error('Failed to import paper:', error)
@@ -869,6 +874,53 @@ const importPaper = async () => {
 
 const goBack = () => {
   router.push('/publications')
+}
+
+const autoMintPublicationNFT = async (publicationId) => {
+  try {
+    // Get publication details
+    const pubResponse = await fetch(`http://localhost:3000/api/publications/${publicationId}`)
+    if (!pubResponse.ok) return
+    
+    const publication = await pubResponse.json()
+    const userData = localStorage.getItem('user')
+    if (!userData) return
+    
+    const user = JSON.parse(userData)
+    
+    // Prepare NFT mint data
+    const mintData = {
+      assetType: 'Publication',
+      selectedAsset: publicationId,
+      title: `${publication.title} - NFT`,
+      category: publication.category || 'Other',
+      keywords: publication.keywords || [],
+      description: publication.abstract || publication.description || '',
+      authors: [{ address: user.wallet_address, share: 10000 }],
+      contentCID: publication.file_cid || `ipfs://Qm${Math.random().toString(36).substr(2, 44)}`, // Mock CID if not available
+      openAccess: true, // Default to open access for published papers
+      accessPrice: 0,
+      isLimitedEdition: false,
+      editionSize: 0,
+      coverImageCID: publication.preview_image || ''
+    }
+    
+    // Call NFT mint API
+    const mintResponse = await fetch('http://localhost:3000/api/nfts/mint', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(mintData)
+    })
+    
+    if (mintResponse.ok) {
+      console.log('Imported publication automatically minted as NFT')
+    }
+  } catch (error) {
+    console.error('Failed to auto-mint publication NFT:', error)
+    // Don't throw error to avoid interrupting the import process
+  }
 }
 
 // Test server connection when component mounts

@@ -51,6 +51,38 @@
             <div class="stat-value">{{ nfts.length }} minted</div>
           </div>
         </div>
+
+        <!-- NFT Purchase Section -->
+        <div v-if="availableNFTs.length > 0" class="nft-purchase-section">
+          <h3>Available NFTs for Purchase</h3>
+          <div class="nft-marketplace-grid">
+            <div v-for="nft in availableNFTs" :key="nft.id" class="nft-marketplace-card">
+              <div class="nft-card-header">
+                <n-tag :type="getNFTType(nft.token_id)" size="small">
+                  <template #icon>
+                    <n-icon :component="DiamondOutline" />
+                  </template>
+                  {{ getNFTLabel(nft.token_id) }}
+                </n-tag>
+                <div class="nft-price">{{ nft.price }} {{ nft.currency }}</div>
+              </div>
+              <div class="nft-description">{{ nft.description }}</div>
+              <div class="nft-seller">Seller: {{ nft.seller_username }}</div>
+              <n-button 
+                @click="purchaseNFT(nft)" 
+                :loading="isPurchasing" 
+                type="primary"
+                block
+                class="purchase-btn"
+              >
+                <template #icon>
+                  <n-icon :component="CashOutline" />
+                </template>
+                Purchase NFT
+              </n-button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -141,6 +173,34 @@
                     <span class="nft-date">{{ formatDate(nft.created_at) }}</span>
                     <span class="nft-owner">{{ nft.owner_username }}</span>
                   </div>
+                  
+                  <!-- Purchase button for listed NFTs -->
+                  <div v-if="nft.status === 'Listed'" class="nft-actions">
+                    <n-button 
+                      type="primary" 
+                      size="small" 
+                      @click="purchaseNFT(nft)"
+                      :loading="isPurchasing"
+                    >
+                      <template #icon>
+                        <n-icon :component="CashOutline" />
+                      </template>
+                      Buy for {{ nft.price }} ETH
+                    </n-button>
+                  </div>
+                  
+                  <!-- View NFT details button -->
+                  <div class="nft-actions">
+                    <n-button 
+                      size="small" 
+                      @click="viewNFTDetails(nft)"
+                    >
+                      <template #icon>
+                        <n-icon :component="EyeOutline" />
+                      </template>
+                      View Details
+                    </n-button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -160,12 +220,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { 
-  NTag, NIcon, NTabs, NTabPane, useMessage 
+  NTag, NIcon, NTabs, NTabPane, NButton, useMessage 
 } from 'naive-ui'
 import {
   TimeOutline, PersonOutline, CalendarOutline, CashOutline,
   ShieldCheckmarkOutline, DiamondOutline, FlagOutline,
-  CheckmarkCircleOutline, DocumentTextOutline
+  CheckmarkCircleOutline, DocumentTextOutline, EyeOutline
 } from '@vicons/ionicons5'
 import axios from 'axios'
 
@@ -178,8 +238,11 @@ const project = ref({})
 const proofs = ref([])
 const nfts = ref([])
 const milestones = ref([])
+const availableNFTs = ref([])
 const activeTab = ref('description')
 const loading = ref(true)
+const isPurchasing = ref(false)
+const currentUser = ref(null)
 
 // Get project ID from route
 const projectId = computed(() => route.params.projectId)
@@ -269,6 +332,78 @@ const goToUserProfile = (userIdentifier) => {
   }
 }
 
+const getNFTType = (tokenId) => {
+  if (tokenId.includes('DATASET_')) return 'info'
+  if (tokenId.includes('PROJECT_')) return 'warning'
+  return 'default'
+}
+
+const getNFTLabel = (tokenId) => {
+  if (tokenId.includes('DATASET_')) return 'Dataset NFT'
+  if (tokenId.includes('PROJECT_')) return 'Project NFT'
+  return 'NFT'
+}
+
+const purchaseNFT = async (nft) => {
+  if (!currentUser.value?.wallet_address) {
+    message.error('Please log in to purchase NFTs')
+    return
+  }
+  
+  isPurchasing.value = true
+  
+  try {
+    message.info(`Purchasing ${getNFTLabel(nft.token_id)} for ${nft.price} ${nft.currency}...`)
+    
+    // Call purchase API
+    const response = await axios.post('http://localhost:3000/api/nfts/marketplace/purchase', {
+      marketplace_id: nft.id,
+      buyer_wallet_address: currentUser.value.wallet_address
+    })
+    
+    if (response.data.success) {
+      message.success(`NFT purchased successfully for ${response.data.transaction.price} ${response.data.transaction.currency}!`)
+      
+      // Remove the purchased NFT from available list
+      availableNFTs.value = availableNFTs.value.filter(n => n.id !== nft.id)
+      
+      // Optionally redirect to user's NFT collection after a delay
+      setTimeout(() => {
+        router.push('/nft')
+      }, 2000)
+    } else {
+      message.error('Failed to purchase NFT')
+    }
+    
+  } catch (error) {
+    console.error('Purchase failed:', error)
+    if (error.response?.data?.error) {
+      message.error(error.response.data.error)
+    } else {
+      message.error('Failed to purchase NFT')
+    }
+  } finally {
+    isPurchasing.value = false
+  }
+}
+
+const checkAvailableNFTs = async () => {
+  try {
+    if (!projectId.value) return
+    
+    // Get marketplace NFTs for this project
+    const response = await axios.get(`http://localhost:3000/api/nfts/marketplace/project/${projectId.value}`)
+    availableNFTs.value = response.data
+    
+    console.log('Found available NFTs:', availableNFTs.value)
+  } catch (error) {
+    console.error('Failed to check available NFTs:', error)
+    // Don't show error to user as this is not critical
+  }
+}
+
+
+
 // API calls
 const fetchProjectData = async () => {
   if (!projectId.value) return
@@ -306,8 +441,27 @@ const fetchProjectData = async () => {
   }
 }
 
-onMounted(() => {
-  fetchProjectData()
+
+
+const viewNFTDetails = (nft) => {
+  router.push(`/nft/${nft.id}`)
+}
+
+const loadCurrentUser = () => {
+  try {
+    const userData = localStorage.getItem('user')
+    if (userData) {
+      currentUser.value = JSON.parse(userData)
+    }
+  } catch (error) {
+    console.error('Failed to get current user:', error)
+  }
+}
+
+onMounted(async () => {
+  loadCurrentUser()
+  await fetchProjectData()
+  await checkAvailableNFTs()
 })
 </script>
 
@@ -638,6 +792,13 @@ onMounted(() => {
   color: #58a6ff;
 }
 
+.nft-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -695,5 +856,77 @@ onMounted(() => {
   .proofs-grid, .nfts-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.nft-purchase-section {
+  margin-top: 32px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nft-purchase-section h3 {
+  color: #f1f3f4;
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.nft-marketplace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.nft-marketplace-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+.nft-marketplace-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  border-color: rgba(30, 111, 235, 0.3);
+}
+
+.nft-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.nft-price {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f6feb;
+}
+
+.nft-description {
+  color: #8b949e;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.nft-seller {
+  color: #f1f3f4;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.purchase-btn {
+  background: #1f6feb;
+  border: none;
+  font-weight: 500;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.purchase-btn:hover {
+  background: #388bfd;
 }
 </style> 

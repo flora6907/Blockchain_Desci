@@ -101,12 +101,20 @@
         <template v-if="item.type === 'project'">
           <div class="card-header">
             <div class="category-tag">{{ item.category || 'Other' }}</div>
-            <n-tag :type="getStatusType(item.status)" round size="small">
-              <template #icon>
-                <n-icon :component="TimeOutline" />
-              </template>
-              {{ item.status }}
-            </n-tag>
+            <div class="tag-group">
+              <n-tag :type="getStatusType(item.status)" round size="small">
+                <template #icon>
+                  <n-icon :component="TimeOutline" />
+                </template>
+                {{ item.status }}
+              </n-tag>
+              <n-tag v-if="item.visibility === 'Private' && item.nfts_count > 0" type="warning" round size="small">
+                <template #icon>
+                  <n-icon :component="DiamondOutline" />
+                </template>
+                NFT
+              </n-tag>
+            </div>
           </div>
 
           <h2 class="item-title">{{ item.name }}</h2>
@@ -136,10 +144,24 @@
             </div>
           </div>
 
-          <div class="view-action">
+          <div class="card-actions">
+            <div class="like-section">
+              <n-button 
+                text 
+                @click.stop="toggleLike(item)"
+                :class="{ 'liked': getLikeStatus(item).isLiked }"
+                class="like-button"
+              >
+                <template #icon>
+                  <n-icon :component="HeartOutline" v-if="!getLikeStatus(item).isLiked" />
+                  <n-icon :component="Heart" v-else />
+                </template>
+                {{ getLikeStatus(item).likeCount || 0 }}
+              </n-button>
+            </div>
+            
             <n-button
               type="primary"
-              block
               class="view-button"
               @click.stop="goToItem(item)"
             >
@@ -155,12 +177,20 @@
         <template v-if="item.type === 'dataset'">
           <div class="card-header">
             <div class="category-tag">{{ item.category || 'Other' }}</div>
-            <n-tag :type="getPrivacyType(item.privacy_level)" round size="small">
-              <template #icon>
-                <n-icon :component="getPrivacyIcon(item.privacy_level)" />
-              </template>
-              {{ getPrivacyLabel(item.privacy_level) }}
-            </n-tag>
+            <div class="tag-group">
+              <n-tag :type="getPrivacyType(item.privacy_level)" round size="small">
+                <template #icon>
+                  <n-icon :component="getPrivacyIcon(item.privacy_level)" />
+                </template>
+                {{ getPrivacyLabel(item.privacy_level) }}
+              </n-tag>
+              <n-tag v-if="item.privacy_level !== 'public' && item.has_nft" type="warning" round size="small">
+                <template #icon>
+                  <n-icon :component="DiamondOutline" />
+                </template>
+                NFT
+              </n-tag>
+            </div>
           </div>
 
           <h2 class="item-title">{{ item.name }}</h2>
@@ -190,10 +220,24 @@
             </div>
           </div>
 
-          <div class="view-action">
+          <div class="card-actions">
+            <div class="like-section">
+              <n-button 
+                text 
+                @click.stop="toggleLike(item)"
+                :class="{ 'liked': getLikeStatus(item).isLiked }"
+                class="like-button"
+              >
+                <template #icon>
+                  <n-icon :component="HeartOutline" v-if="!getLikeStatus(item).isLiked" />
+                  <n-icon :component="Heart" v-else />
+                </template>
+                {{ getLikeStatus(item).likeCount || 0 }}
+              </n-button>
+            </div>
+            
             <n-button
               type="primary"
-              block
               class="view-button"
               @click.stop="goToItem(item)"
             >
@@ -244,10 +288,24 @@
             </div>
           </div>
 
-          <div class="view-action">
+          <div class="card-actions">
+            <div class="like-section">
+              <n-button 
+                text 
+                @click.stop="toggleLike(item)"
+                :class="{ 'liked': getLikeStatus(item).isLiked }"
+                class="like-button"
+              >
+                <template #icon>
+                  <n-icon :component="HeartOutline" v-if="!getLikeStatus(item).isLiked" />
+                  <n-icon :component="Heart" v-else />
+                </template>
+                {{ getLikeStatus(item).likeCount || 0 }}
+              </n-button>
+            </div>
+            
             <n-button
               type="primary"
-              block
               class="view-button"
               @click.stop="goToItem(item)"
             >
@@ -290,7 +348,7 @@ import {
   TimeOutline, ArrowForwardOutline, CashOutline,
   ShieldCheckmarkOutline, DiamondOutline, GlobeOutline, LockClosedOutline,
   LayersOutline, DocumentTextOutline, BookOutline, SearchOutline,
-  FolderOutline, GridOutline
+  FolderOutline, GridOutline, HeartOutline, Heart
 } from '@vicons/ionicons5';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
@@ -331,6 +389,10 @@ const selectedStatus = ref(null);
 
 // User data
 const currentUser = ref(null);
+
+// Like system
+const likeStatus = ref({});
+const isLiking = ref(false);
 
 // Filter options
 const projectCategoryOptions = ref([
@@ -531,6 +593,72 @@ const onTabChange = (tab) => {
   clearFilters();
   resetPagination();
   fetchData();
+};
+
+// Like functionality
+const getLikeStatus = (item) => {
+  const key = `${item.type}_${item.id}`;
+  return likeStatus.value[key] || { 
+    isLiked: false, 
+    likeCount: item.like_count || 0 
+  };
+};
+
+const toggleLike = async (item) => {
+  if (isLiking.value) return;
+  
+  if (!currentUser.value?.wallet_address) {
+    message.warning('Please log in to like items');
+    return;
+  }
+  
+  isLiking.value = true;
+  
+  try {
+    const response = await axios.post('http://localhost:3000/api/likes/toggle', {
+      user_wallet_address: currentUser.value.wallet_address,
+      target_type: item.type,
+      target_id: item.id
+    });
+    
+    if (response.data.success) {
+      const key = `${item.type}_${item.id}`;
+      likeStatus.value[key] = {
+        isLiked: response.data.isLiked,
+        likeCount: response.data.likeCount
+      };
+      
+      // Update the item's like count in the original data
+      item.like_count = response.data.likeCount;
+      
+      message.success(response.data.message);
+    }
+  } catch (error) {
+    console.error('Failed to toggle like:', error);
+    message.error('Failed to toggle like');
+  } finally {
+    isLiking.value = false;
+  }
+};
+
+const fetchLikeStatus = async () => {
+  try {
+    if (!displayItems.value.length) return;
+    
+    const items = displayItems.value.map(item => ({
+      type: item.type,
+      id: item.id
+    }));
+    
+    const response = await axios.post('http://localhost:3000/api/likes/status', {
+      user_wallet_address: currentUser.value?.wallet_address,
+      items: items
+    });
+    
+    likeStatus.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch like status:', error);
+  }
 };
 
 const onSearchChange = () => {
@@ -1036,11 +1164,21 @@ onMounted(async () => {
     ]);
     // Load recommendations by default
     await fetchAllRecommendations();
+    
+    // Load like status after data is loaded
+    await fetchLikeStatus();
   } catch (error) {
     console.error('Failed to initialize explore page:', error);
     message.error('Failed to load explore page');
   }
 });
+
+// Watch for displayItems changes to update like status
+watch(displayItems, async (newItems) => {
+  if (newItems.length > 0) {
+    await fetchLikeStatus();
+  }
+}, { deep: true });
 
 onUnmounted(() => {
   if (cleanupScrollListener) {
@@ -1199,6 +1337,12 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 
+.tag-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .category-tag {
   padding: 4px 12px;
   background: rgba(88, 166, 255, 0.1);
@@ -1293,8 +1437,45 @@ onUnmounted(() => {
   font-size: 16px;
 }
 
-.view-action {
+.card-actions {
   margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.like-section {
+  display: flex;
+  align-items: center;
+}
+
+.like-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  color: #6b7280;
+  border: 1px solid transparent;
+}
+
+.like-button:hover {
+  color: #ef4444;
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.like-button.liked {
+  color: #ef4444;
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.like-button.liked .n-icon {
+  color: #ef4444;
 }
 
 .view-button {
@@ -1303,6 +1484,7 @@ onUnmounted(() => {
   font-weight: 500;
   height: 36px;
   border-radius: 8px;
+  flex: 1;
 }
 
 .view-button:hover {

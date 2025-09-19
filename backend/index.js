@@ -26,6 +26,7 @@ const userRoutes = require('./routes/users');
 const datasetRoutes = require('./routes/datasets');
 const reviewRoutes = require('./routes/reviews');
 const publicationRoutes = require('./routes/publications');
+const nftRoutes = require('./routes/nfts');
 // We will move repository logic into projects.js, so this is no longer needed.
 
 // Routes
@@ -36,7 +37,10 @@ app.use('/api/users', userRoutes);
 app.use('/api/datasets', datasetRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/publications', publicationRoutes);
+app.use('/api/nfts', nftRoutes);
 
+const likesRoutes = require('./routes/likes');
+app.use('/api/likes', likesRoutes);
 
 app.get('/api/download/:filename', (req, res) => {
   const fileName = req.params.filename

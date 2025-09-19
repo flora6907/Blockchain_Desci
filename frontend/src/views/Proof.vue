@@ -186,9 +186,10 @@
             <n-icon :component="ShieldCheckmarkOutline" />
           </div>
           <h3>No ZK-Proof Protected Datasets</h3>
-          <p>You don't have any datasets with zero-knowledge proof protection yet.</p>
+          <p>Only datasets with zero-knowledge proof protection are shown here.</p>
+          <p class="empty-hint">Upload a dataset and enable ZK-proof protection to see it in this list.</p>
           <n-button @click="router.push('/datasets/upload')" type="primary">
-            Upload Dataset
+            Upload & Protect Dataset
           </n-button>
         </div>
       </n-spin>
@@ -360,6 +361,8 @@ const fetchZKProofDatasets = async () => {
   isLoading.value = true
   
   try {
+    console.log('🔍 [FRONTEND] Fetching ZK-protected datasets for user:', currentUser.value.wallet_address)
+    
     const response = await axios.get(`http://localhost:3000/api/datasets`, {
       params: {
         wallet_address: currentUser.value.wallet_address,
@@ -367,20 +370,66 @@ const fetchZKProofDatasets = async () => {
       }
     })
 
+    console.log('📊 [FRONTEND] Raw datasets response:', response.data)
+
     // Ensure response.data is an array
     const dataArray = Array.isArray(response.data) ? response.data : []
     
+    console.log(`📋 [FRONTEND] Processing ${dataArray.length} ZK-protected datasets`)
+    
     datasets.value = dataArray.map(dataset => {
-      return {
+      // Determine ZK proof status based on available data
+      let zkStatus = 'pending' // Default status for ZK-protected datasets
+      
+      console.log(`🔍 [FRONTEND] Raw dataset data:`, {
+        name: dataset.name,
+        privacy_level: dataset.privacy_level,
+        zk_proof_id: dataset.zk_proof_id,
+        effective_privacy_level: dataset.effective_privacy_level,
+        status: dataset.status
+      })
+      
+      if (dataset.zk_proof_id) {
+        // If there's a ZK proof ID, the proof has been generated
+        zkStatus = 'generated'
+      } else {
+        // No ZK proof ID yet - check dataset status to determine ZK proof status
+        if (dataset.status === 'processing' || dataset.status === 'generating') {
+          zkStatus = 'generating'
+        } else if (dataset.status === 'failed') {
+          zkStatus = 'failed'
+        } else if (dataset.status === 'uploaded' || dataset.status === 'ready') {
+          // Dataset is uploaded and ready for ZK proof generation
+          zkStatus = 'pending'
+        } else {
+          // Unknown dataset status - default to pending
+          console.warn(`⚠️ [FRONTEND] Unknown dataset status: ${dataset.status}, defaulting to pending`)
+          zkStatus = 'pending'
+        }
+      }
+      
+      const processedDataset = {
         ...dataset,
-        zk_proof_status: dataset.zk_proof_id ? 'generated' : 'pending',
+        zk_proof_status: zkStatus,
         zk_proof_id: dataset.zk_proof_id ? String(dataset.zk_proof_id) : null,
         verification_key: dataset.verification_key ? String(dataset.verification_key) : null
       }
+      
+      console.log(`📄 [FRONTEND] Dataset processed:`, {
+        name: dataset.name,
+        original_status: dataset.status,
+        has_zk_proof_id: !!dataset.zk_proof_id,
+        determined_zk_proof_status: processedDataset.zk_proof_status,
+        effective_privacy_level: dataset.effective_privacy_level
+      })
+      
+      return processedDataset
     })
+    
+    console.log(`✅ [FRONTEND] Successfully loaded ${datasets.value.length} ZK-protected datasets`)
   } catch (error) {
-    console.error('Failed to fetch ZK proof datasets:', error)
-    message.error('Failed to load datasets')
+    console.error('❌ [FRONTEND] Failed to fetch ZK proof datasets:', error)
+    message.error('Failed to load ZK-protected datasets')
     datasets.value = [] // Ensure datasets is an empty array on error
   } finally {
     isLoading.value = false
@@ -638,7 +687,14 @@ onMounted(async () => {
 .empty-state p {
   font-size: 16px;
   color: #8b949e;
-  margin: 0 0 24px 0;
+  margin: 0 0 12px 0;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #6c757d;
+  margin: 0 0 24px 0 !important;
+  font-style: italic;
 }
 
 /* Responsive design */

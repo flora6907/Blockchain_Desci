@@ -1,7 +1,7 @@
 <template>
   <n-layout-header bordered class="navbar">
     <div class="navbar-left">
-      <router-link to="/" class="logo">DeSci-Proof</router-link>
+      <router-link to="/" class="logo">Verno</router-link>
     </div>
     <div class="navbar-center">
        <n-dropdown trigger="hover" :options="projectOptions" @select = 'handleDropdownSelect'>
@@ -10,6 +10,9 @@
       <n-dropdown trigger="hover" :options="datasetOptions" @select = 'handleDropdownSelect'>
         <n-a href="#">Datasets</n-a>
       </n-dropdown>
+      <router-link to="/influence" class="nav-link">
+        <n-a href="#">Influence</n-a>
+      </router-link>
       <n-a href="#">Community</n-a>
       <n-a href="#">Docs</n-a>
     </div>
@@ -118,6 +121,20 @@ const datasetOptions = [
 .navbar-center .n-a {
   color: #c9d1d9;
   text-decoration: none;
+}
+
+.nav-link {
+  text-decoration: none;
+}
+
+.nav-link .n-a {
+  color: #c9d1d9 !important;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.nav-link:hover .n-a {
+  color: #1890ff !important;
 }
 
 .navbar-right {

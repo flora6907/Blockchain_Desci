@@ -323,6 +323,7 @@ import {
   ArrowBackOutline, CreateOutline, SaveOutline, CheckmarkOutline, DownloadOutline,
   DocumentTextOutline, ChatbubbleEllipsesOutline, TimeOutline
 } from '@vicons/ionicons5'
+import axios from 'axios'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -458,10 +459,45 @@ const saveDraft = async () => {
   try {
     isSaving.value = true
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // Calculate progress based on form completion
+    const progress = calculateProgress()
     
-    // TODO: Implement actual save draft logic
+    // Prepare the review content
+    const reviewContent = {
+      overallRating: reviewForm.value.overallRating,
+      recommendation: reviewForm.value.recommendation,
+      originality: reviewForm.value.originality,
+      methodology: reviewForm.value.methodology,
+      results: reviewForm.value.results,
+      writing: reviewForm.value.writing,
+      relevance: reviewForm.value.relevance,
+      summary: reviewForm.value.summary,
+      strengths: reviewForm.value.strengths,
+      weaknesses: reviewForm.value.weaknesses,
+      minorComments: reviewForm.value.minorComments,
+      editorComments: reviewForm.value.editorComments
+    }
+    
+    // Call backend API to save draft
+    const response = await fetch(`http://localhost:3000/api/reviews/${route.params.review_id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        review_content: JSON.stringify(reviewContent),
+        progress: progress,
+        is_draft_save: true // This will trigger status change from Pending to In Progress
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const updatedReview = await response.json()
+    console.log('Draft saved successfully:', updatedReview)
+    
     message.success('Draft saved successfully')
   } catch (error) {
     console.error('Failed to save draft:', error)
@@ -469,6 +505,36 @@ const saveDraft = async () => {
   } finally {
     isSaving.value = false
   }
+}
+
+// Function to calculate progress based on form completion
+const calculateProgress = () => {
+  let completedSections = 0
+  let totalSections = 4
+  
+  // Overall Assessment (25%)
+  if (reviewForm.value.overallRating > 0 && reviewForm.value.recommendation) {
+    completedSections += 1
+  }
+  
+  // Detailed Evaluation (25%)
+  const evaluationFields = ['originality', 'methodology', 'results', 'writing', 'relevance']
+  const completedEvaluations = evaluationFields.filter(field => reviewForm.value[field] > 0).length
+  if (completedEvaluations >= 3) { // At least 3 out of 5 evaluations
+    completedSections += 1
+  }
+  
+  // Comments for Authors (25%)
+  if (reviewForm.value.summary && reviewForm.value.strengths && reviewForm.value.weaknesses) {
+    completedSections += 1
+  }
+  
+  // Editor Comments (25%) - Optional, so we count it as completed if any content exists
+  if (reviewForm.value.editorComments || completedSections >= 3) {
+    completedSections += 1
+  }
+  
+  return Math.round((completedSections / totalSections) * 100)
 }
 
 const submitReview = async () => {
@@ -626,26 +692,77 @@ const updateReviewsList = () => {
   }
 }
 
-// Lifecycle
-onMounted(async () => {
+// Load review data from backend API
+const loadReview = async () => {
+  isLoading.value = true
   try {
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    const reviewId = route.params.review_id
+    console.log('Loading review for form with ID:', reviewId)
     
-    const reviewId = parseInt(route.params.review_id)
-    review.value = mockReviews.find(r => r.id === reviewId)
+    // Call backend API to get review details
+    const response = await axios.get(`http://localhost:3000/api/reviews/${reviewId}`)
+    console.log('Review form response:', response.data)
+    
+    review.value = response.data
     
     if (!review.value) {
       throw new Error('Review not found')
     }
     
-    // TODO: Load existing review data if available
+    // Load existing review content if available
+    if (review.value.reviewContent) {
+      try {
+        const existingContent = JSON.parse(review.value.reviewContent)
+        console.log('Loading existing review content:', existingContent)
+        
+        // Populate form with existing data
+        reviewForm.value = {
+          overallRating: existingContent.overallRating || 0,
+          recommendation: existingContent.recommendation || '',
+          originality: existingContent.originality || 0,
+          methodology: existingContent.methodology || 0,
+          results: existingContent.results || 0,
+          writing: existingContent.writing || 0,
+          relevance: existingContent.relevance || 0,
+          summary: existingContent.summary || '',
+          strengths: existingContent.strengths || '',
+          weaknesses: existingContent.weaknesses || '',
+          minorComments: existingContent.minorComments || '',
+          editorComments: existingContent.editorComments || ''
+        }
+        
+        console.log('Form populated with existing data:', reviewForm.value)
+      } catch (parseError) {
+        console.error('Failed to parse existing review content:', parseError)
+      }
+    }
   } catch (error) {
     console.error('Failed to load review:', error)
-    message.error('Failed to load review data')
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    })
+    
+    // Fallback to mock data for development
+    const reviewId = parseInt(route.params.review_id)
+    review.value = mockReviews.find(r => r.id === reviewId)
+    
+    if (!review.value) {
+      if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+        message.error('Cannot connect to server. Using mock data for demo.')
+      } else {
+        message.error(`Failed to load review data: ${error.message}`)
+      }
+    }
   } finally {
     isLoading.value = false
   }
+}
+
+// Lifecycle
+onMounted(async () => {
+  await loadReview()
 })
 </script>
 

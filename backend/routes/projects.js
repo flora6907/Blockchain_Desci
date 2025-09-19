@@ -200,10 +200,16 @@ router.get('/explore/public', async (req, res) => {
         COALESCE(
           (SELECT COUNT(*) FROM nfts WHERE project_id = p.id),
           0
-        ) as nfts_count
+        ) as nfts_count,
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM nfts WHERE project_id = p.id) THEN 1
+          ELSE 0
+        END as has_nft,
+        COALESCE(p.like_count, 0) as like_count
       FROM projects p
       JOIN users u ON p.owner_id = u.id
-      WHERE p.visibility = 'Public'
+      WHERE p.visibility = 'Public' 
+         OR (p.visibility = 'Private' AND EXISTS(SELECT 1 FROM nfts WHERE project_id = p.id))
       ORDER BY p.updated_at DESC
     `);
 
@@ -645,6 +651,322 @@ router.delete('/:projectId/milestones/:milestoneId', async (req, res) => {
   } catch (error) {
     console.error('Failed to delete milestone:', error);
     res.status(500).json({ error: 'Failed to delete milestone' });
+  }
+});
+
+// Get project NFT status
+router.get('/:projectId/nft', async (req, res) => {
+  const { projectId } = req.params;
+
+  try {
+    // Check if project exists
+    const project = await db.getAsync(
+      'SELECT * FROM projects WHERE id = ?',
+      [projectId]
+    );
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check if NFT exists for this project
+    const nft = await db.getAsync(
+      `SELECT n.*, u.username as owner_username, u.wallet_address as owner_wallet_address 
+       FROM nfts n 
+       JOIN users u ON n.owner_id = u.id 
+       WHERE n.project_id = ?`,
+      [projectId]
+    );
+
+    if (nft) {
+      // Parse metadata if it exists
+      let metadata = {};
+      try {
+        metadata = nft.metadata_uri ? JSON.parse(nft.metadata_uri) : {};
+      } catch (error) {
+        console.error('Failed to parse NFT metadata:', error);
+      }
+
+      const nftData = {
+        id: nft.id,
+        tokenId: nft.token_id,
+        contractAddress: nft.contract_address,
+        metadata: metadata,
+        owner: {
+          id: nft.owner_id,
+          username: nft.owner_username,
+          walletAddress: nft.owner_wallet_address
+        },
+        mintedAt: nft.created_at,
+        // Extract common metadata fields
+        title: metadata.title || project.name,
+        description: metadata.description || project.description,
+        image: metadata.image,
+        price: metadata.price || 0,
+        royalty: metadata.royalty || 0,
+        tags: metadata.tags || [],
+        views: metadata.views || 0
+      };
+
+      res.json({
+        hasNFT: true,
+        project: {
+          id: project.id,
+          title: project.name,
+          description: project.description,
+          status: project.status,
+          category: project.category,
+          isCompleted: project.status === 'Completed'
+        },
+        nft: nftData
+      });
+    } else {
+      res.json({
+        hasNFT: false,
+        project: {
+          id: project.id,
+          title: project.name,
+          description: project.description,
+          status: project.status,
+          category: project.category,
+          isCompleted: project.status === 'Completed'
+        },
+        nft: null
+      });
+    }
+  } catch (error) {
+    console.error('Failed to get project NFT:', error);
+    res.status(500).json({ error: 'Failed to get project NFT' });
+  }
+});
+
+// Mint project as NFT
+router.post('/:projectId/nft/mint', async (req, res) => {
+  const { projectId } = req.params;
+  const {
+    title,
+    description,
+    price = 0,
+    royalty = 0,
+    tags = [],
+    walletAddress
+  } = req.body;
+
+  if (!title || !description || !walletAddress) {
+    return res.status(400).json({ 
+      error: 'Title, description, and wallet address are required' 
+    });
+  }
+
+  try {
+    // Check if project exists and is completed
+    const project = await db.getAsync(
+      'SELECT * FROM projects WHERE id = ?',
+      [projectId]
+    );
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (project.status !== 'Completed') {
+      return res.status(400).json({ 
+        error: 'Project must be completed before minting as NFT' 
+      });
+    }
+
+    // If project is public, it must have open access for NFT minting
+    if (project.visibility === 'Public' && price > 0) {
+      return res.status(400).json({ 
+        error: 'Public projects must have open access (price = 0) when minting NFTs. Cannot set price for public projects.' 
+      });
+    }
+
+    // Check if NFT already exists for this project
+    const existingNFT = await db.getAsync(
+      'SELECT id FROM nfts WHERE project_id = ?',
+      [projectId]
+    );
+
+    if (existingNFT) {
+      return res.status(400).json({ 
+        error: 'NFT already exists for this project' 
+      });
+    }
+
+    // Get user ID
+    const user = await db.getAsync(
+      'SELECT id FROM users WHERE wallet_address = ?',
+      [walletAddress]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate mock token ID and contract address
+    const tokenId = `0x${Date.now().toString(16)}${Math.random().toString(16).substr(2, 8)}`;
+    const contractAddress = '0x1234567890abcdef1234567890abcdef12345678'; // Mock contract address
+
+    // Create metadata
+    const metadata = {
+      title,
+      description,
+      image: `https://via.placeholder.com/400x300/1a1a2e/eee?text=${encodeURIComponent(title)}`,
+      price,
+      royalty,
+      tags,
+      views: 0,
+      projectId: parseInt(projectId),
+      mintedAt: new Date().toISOString()
+    };
+
+    // Insert NFT record
+    const result = await db.runAsync(
+      `INSERT INTO nfts (
+        project_id, token_id, contract_address, metadata_uri, owner_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+      [projectId, tokenId, contractAddress, JSON.stringify(metadata), user.id]
+    );
+
+    // Get the created NFT with owner info
+    const newNFT = await db.getAsync(
+      `SELECT n.*, u.username as owner_username, u.wallet_address as owner_wallet_address 
+       FROM nfts n 
+       JOIN users u ON n.owner_id = u.id 
+       WHERE n.id = ?`,
+      [result.lastID]
+    );
+
+    const nftData = {
+      id: newNFT.id,
+      tokenId: newNFT.token_id,
+      contractAddress: newNFT.contract_address,
+      metadata: metadata,
+      owner: {
+        id: newNFT.owner_id,
+        username: newNFT.owner_username,
+        walletAddress: newNFT.owner_wallet_address
+      },
+      mintedAt: newNFT.created_at,
+      ...metadata // Spread metadata fields for easy access
+    };
+
+    res.status(201).json({
+      message: 'Project successfully minted as NFT',
+      nft: nftData
+    });
+
+  } catch (error) {
+    console.error('Failed to mint project NFT:', error);
+    res.status(500).json({ error: 'Failed to mint project NFT' });
+  }
+});
+
+// Update NFT metadata (for listing, price changes, etc.)
+router.put('/:projectId/nft', async (req, res) => {
+  const { projectId } = req.params;
+  const { price, status, views, ...otherUpdates } = req.body;
+
+  try {
+    // Get existing NFT
+    const nft = await db.getAsync(
+      'SELECT * FROM nfts WHERE project_id = ?',
+      [projectId]
+    );
+
+    if (!nft) {
+      return res.status(404).json({ error: 'NFT not found for this project' });
+    }
+
+    // Parse existing metadata
+    let metadata = {};
+    try {
+      metadata = JSON.parse(nft.metadata_uri || '{}');
+    } catch (error) {
+      console.error('Failed to parse existing metadata:', error);
+    }
+
+    // Update metadata
+    const updatedMetadata = {
+      ...metadata,
+      ...otherUpdates,
+      ...(price !== undefined && { price }),
+      ...(status !== undefined && { status }),
+      ...(views !== undefined && { views }),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Update NFT record
+    await db.runAsync(
+      'UPDATE nfts SET metadata_uri = ? WHERE project_id = ?',
+      [JSON.stringify(updatedMetadata), projectId]
+    );
+
+    res.json({
+      message: 'NFT updated successfully',
+      metadata: updatedMetadata
+    });
+
+  } catch (error) {
+    console.error('Failed to update NFT:', error);
+    res.status(500).json({ error: 'Failed to update NFT' });
+  }
+});
+
+// Get NFTs for a specific project
+router.get('/:projectId/nfts', async (req, res) => {
+  const { projectId } = req.params;
+
+  try {
+    // Get all NFTs for this project
+    const nfts = await db.allAsync(`
+      SELECT 
+        n.*,
+        u.username as owner_username,
+        u.wallet_address as owner_wallet_address
+      FROM nfts n
+      JOIN users u ON n.owner_id = u.id
+      WHERE n.project_id = ?
+      ORDER BY n.created_at DESC
+    `, [projectId]);
+
+    // Parse metadata and format response
+    const formattedNFTs = nfts.map(nft => {
+      let metadata = {};
+      try {
+        metadata = JSON.parse(nft.metadata_uri || '{}');
+      } catch (error) {
+        console.error('Failed to parse NFT metadata:', error);
+      }
+
+      return {
+        id: nft.id,
+        token_id: nft.token_id,
+        contract_address: nft.contract_address,
+        asset_type: nft.asset_type,
+        project_id: nft.project_id,
+        owner_id: nft.owner_id,
+        owner_username: nft.owner_username,
+        owner_wallet_address: nft.owner_wallet_address,
+        created_at: nft.created_at,
+        // Extract metadata fields
+        title: metadata.title,
+        description: metadata.description,
+        price: metadata.price,
+        status: metadata.status,
+        views: metadata.views || 0,
+        image: metadata.image,
+        openAccess: metadata.openAccess,
+        accessPrice: metadata.accessPrice,
+        ...metadata
+      };
+    });
+
+    res.json(formattedNFTs);
+  } catch (error) {
+    console.error('Failed to get project NFTs:', error);
+    res.status(500).json({ error: 'Failed to get project NFTs' });
   }
 });
 

@@ -124,7 +124,7 @@ const routes = [
           {
             path: 'nft',
             name: 'ProjectNFT',
-            component: () => import('../views/NFT.vue'),
+            component: () => import('../views/ProjectNFT.vue'),
             meta: { title: 'NFT' }
           },
           {
@@ -317,6 +317,42 @@ const routes = [
         name: 'NFTs',
         component: () => import('../views/NFT.vue'),
         meta: { title: 'NFTs' }
+      }
+    ]
+  },
+  {
+    path: '/influence',
+    component: MainLayout,
+    children: [
+      {
+        path: '',
+        name: 'Influence',
+        component: () => import('../views/Influence.vue'),
+        meta: { title: 'Influence Ranking' }
+      }
+    ]
+  },
+  {
+    path: '/nft',
+    component: MainLayout,
+    children: [
+      {
+        path: '',
+        name: 'NFT',
+        component: () => import('../views/NFT.vue'),
+        meta: { title: 'NFT Gallery' }
+      },
+      {
+        path: 'mint',
+        name: 'NFTMint',
+        component: () => import('../views/ProjectNFT.vue'),
+        meta: { title: 'Mint NFT' }
+      },
+      {
+        path: ':nftId',
+        name: 'NFTDetail',
+        component: () => import('../views/NFTDetail.vue'),
+        meta: { title: 'NFT Details' }
       }
     ]
   },

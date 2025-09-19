@@ -53,7 +53,9 @@ const logDatasetUsage = async (datasetId, userId, actionType, metadata = {}) => 
 // Get all datasets for a user
 router.get('/', async (req, res) => {
   try {
-    const { wallet_address, project_id } = req.query;
+    const { wallet_address, project_id, privacy_level } = req.query;
+    
+    console.log('🔍 [BACKEND] Datasets GET request:', { wallet_address, project_id, privacy_level });
     
     if (!wallet_address) {
       return res.status(400).json({ error: 'Wallet address is required' });
@@ -70,7 +72,7 @@ router.get('/', async (req, res) => {
         u.username as owner_username,
         p.name as project_name,
         CASE 
-          WHEN d.zk_proof_id IS NOT NULL THEN 'privacy_protected'
+          WHEN d.zk_proof_id IS NOT NULL THEN 'zk_proof_protected'
           ELSE d.privacy_level
         END as effective_privacy_level
       FROM datasets d
@@ -86,9 +88,35 @@ router.get('/', async (req, res) => {
       params.push(project_id);
     }
     
+    // Filter by privacy level - handle special case for ZK-protected datasets
+    if (privacy_level) {
+      if (privacy_level === 'zk_proof_protected') {
+        // Show all datasets with zk_proof_protected privacy level, regardless of zk_proof_id status
+        sql += ' AND d.privacy_level = ?';
+        params.push('zk_proof_protected');
+        console.log('🔒 [BACKEND] Filtering for ZK-protected datasets (all statuses)');
+      } else {
+        sql += ' AND d.privacy_level = ? AND d.zk_proof_id IS NULL';
+        params.push(privacy_level);
+        console.log('🔒 [BACKEND] Filtering for privacy level:', privacy_level);
+      }
+    }
+    
     sql += ' ORDER BY d.updated_at DESC';
 
     const datasets = await db.allAsync(sql, params);
+    console.log(`📊 [BACKEND] Found ${datasets.length} datasets matching criteria`);
+    
+    // Add debug info for each dataset
+    datasets.forEach((dataset, index) => {
+      console.log(`📄 [BACKEND] Dataset ${index + 1}:`, {
+        name: dataset.name,
+        privacy_level: dataset.privacy_level,
+        has_zk_proof: !!dataset.zk_proof_id,
+        effective_privacy_level: dataset.effective_privacy_level
+      });
+    });
+    
     res.json(datasets);
   } catch (error) {
     console.error('Failed to get datasets:', error);
@@ -105,11 +133,20 @@ router.get('/explore', async (req, res) => {
       SELECT 
         d.*,
         u.username as owner_username,
-        p.name as project_name
+        p.name as project_name,
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM nfts n WHERE n.project_id = d.project_id AND n.token_id LIKE 'DATASET_%') THEN 1
+          ELSE 0
+        END as has_nft,
+        COALESCE(d.like_count, 0) as like_count
       FROM datasets d
       LEFT JOIN users u ON d.owner_id = u.id
       LEFT JOIN projects p ON d.project_id = p.id
-      WHERE d.privacy_level = 'public' AND d.status = 'ready'
+      WHERE d.status = 'ready' AND (
+        d.privacy_level = 'public' 
+        OR (d.privacy_level IN ('private', 'encrypted', 'zk_proof_protected') 
+            AND EXISTS(SELECT 1 FROM nfts n WHERE n.project_id = d.project_id AND n.token_id LIKE 'DATASET_%'))
+      )
     `;
     
     const params = [];
@@ -246,16 +283,24 @@ router.get('/explore/:id', async (req, res) => {
         d.*,
         u.username as owner_username,
         p.name as project_name,
-        zk.status as zk_proof_status
+        zk.status as zk_proof_status,
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM nfts n WHERE n.project_id = d.project_id AND n.token_id LIKE 'DATASET_%') THEN 1
+          ELSE 0
+        END as has_nft
       FROM datasets d
       LEFT JOIN users u ON d.owner_id = u.id
       LEFT JOIN projects p ON d.project_id = p.id
       LEFT JOIN zk_proofs zk ON d.zk_proof_id = zk.id
-      WHERE d.id = ? AND d.privacy_level = 'public' AND d.status = 'ready'
+      WHERE d.id = ? AND d.status = 'ready' AND (
+        d.privacy_level = 'public' 
+        OR (d.privacy_level IN ('private', 'encrypted', 'zk_proof_protected') 
+            AND EXISTS(SELECT 1 FROM nfts n WHERE n.project_id = d.project_id AND n.token_id LIKE 'DATASET_%'))
+      )
     `, [id]);
 
     if (!dataset) {
-      return res.status(404).json({ error: 'Dataset not found or not publicly accessible' });
+      return res.status(404).json({ error: 'Dataset not found or not accessible' });
     }
 
     // Get all files for this dataset
@@ -267,7 +312,7 @@ router.get('/explore/:id', async (req, res) => {
 
     res.json(dataset);
   } catch (error) {
-    console.error('Failed to get public dataset:', error);
+    console.error('Failed to get dataset:', error);
     res.status(500).json({ error: 'Failed to get dataset' });
   }
 });

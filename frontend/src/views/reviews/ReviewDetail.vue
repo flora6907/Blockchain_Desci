@@ -200,8 +200,8 @@
                 <div class="status-item">
                   <span class="status-label">Deadline:</span>
                   <span class="status-value">{{ formatDate(review.deadline) }}</span>
-                  <span :class="getDaysLeftClass(review.deadline)" class="days-left">
-                    ({{ getDaysLeft(review.deadline) }})
+                  <span :class="getDaysLeftClass(review.deadline, review.status)" class="days-left">
+                    ({{ getDaysLeft(review.deadline, review.status) }})
                   </span>
                 </div>
                 
@@ -218,15 +218,20 @@
                 <div class="progress-info">
                   <span class="progress-label">{{ getProgressLabel(review.status) }}</span>
                   <n-progress 
-                    :percentage="getProgressPercentage(review.status)"
+                    :percentage="getProgressPercentage(review.status, review.progress)"
                     :status="getProgressStatus(review.status)"
                     :show-indicator="true"
                     class="progress-bar"
                   />
                 </div>
                 
-                <div v-if="review.progress" class="progress-details">
-                  <p class="progress-text">Current progress: {{ review.progress }}%</p>
+                <div class="progress-details">
+                  <p class="progress-text" v-if="review.progress !== null && review.progress !== undefined">
+                    Current progress: {{ review.progress }}%
+                  </p>
+                  <p class="progress-text" v-if="review.status === 'In Progress' && review.startedAt">
+                    Started: {{ formatDate(review.startedAt) }}
+                  </p>
                 </div>
               </div>
             </n-card>
@@ -312,6 +317,7 @@ import {
   CheckmarkCircleOutline, DocumentTextOutline, TimeOutline, ChatbubbleEllipsesOutline,
   CloseOutline, PauseOutline, CheckmarkOutline, AlertCircleOutline
 } from '@vicons/ionicons5'
+import axios from 'axios'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -386,7 +392,10 @@ const formatDate = (date) => {
   return dayjs(date).format('MMM DD, YYYY')
 }
 
-const getDaysLeft = (deadline) => {
+const getDaysLeft = (deadline, status = null) => {
+  // If completed, don't show overdue
+  if (status === 'Completed') return 'Completed'
+  
   const days = dayjs(deadline).diff(dayjs(), 'day')
   if (days < 0) return 'Overdue'
   if (days === 0) return 'Due today'
@@ -394,7 +403,10 @@ const getDaysLeft = (deadline) => {
   return `${days} days left`
 }
 
-const getDaysLeftClass = (deadline) => {
+const getDaysLeftClass = (deadline, status = null) => {
+  // If completed, use success class
+  if (status === 'Completed') return 'completed'
+  
   const days = dayjs(deadline).diff(dayjs(), 'day')
   if (days < 0) return 'overdue'
   if (days <= 2) return 'urgent'
@@ -444,15 +456,13 @@ const getProgressLabel = (status) => {
   }
 }
 
-const getProgressPercentage = (status) => {
-  switch (status) {
-    case 'Pending': return 0
-    case 'In Progress': return 50
-    case 'Under Review': return 80
-    case 'Completed': return 100
-    case 'Revision Requested': return 30
-    default: return 0
-  }
+const getProgressPercentage = (status, progress) => {
+  if (status === 'Pending') return 0
+  if (status === 'In Progress') return progress || 0
+  if (status === 'Under Review') return 80
+  if (status === 'Completed') return 100
+  if (status === 'Revision Requested') return 30
+  return 0
 }
 
 const getProgressStatus = (status) => {
@@ -792,6 +802,10 @@ onMounted(async () => {
 
 .days-left.urgent {
   color: #ff8c42;
+}
+
+.days-left.completed {
+  color: #4ade80;
 }
 
 .days-left.warning {

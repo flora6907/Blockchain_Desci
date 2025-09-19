@@ -108,11 +108,16 @@ router.get('/user/:walletAddress', async (req, res) => {
   const { walletAddress } = req.params;
   
   try {
+    console.log('🔍 [BACKEND] Fetching publications for wallet:', walletAddress);
+    
     // Get user by wallet address
     const user = await db.getAsync('SELECT id FROM users WHERE wallet_address = ?', [walletAddress]);
     if (!user) {
+      console.log('❌ [BACKEND] User not found for wallet:', walletAddress);
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    console.log('✅ [BACKEND] Found user ID:', user.id, 'for wallet:', walletAddress);
 
     // Get all publications authored by this user
     const publications = await db.allAsync(`
@@ -125,6 +130,16 @@ router.get('/user/:walletAddress', async (req, res) => {
       WHERE p.author_id = ?
       ORDER BY p.created_at DESC
     `, [user.id]);
+    
+    console.log(`📚 [BACKEND] Found ${publications.length} publications for user ID ${user.id}`);
+    publications.forEach((pub, index) => {
+      console.log(`📄 [BACKEND] Publication ${index + 1}:`, {
+        title: pub.title,
+        author_id: pub.author_id,
+        author_wallet: pub.author_wallet_address,
+        status: pub.status
+      });
+    });
 
     // Parse JSON fields and format data
     const formattedPublications = publications.map(publication => ({

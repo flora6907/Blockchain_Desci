@@ -7,7 +7,7 @@
       type="info"
       class="profile-alert"
     >
-      To get the most out of DeSci-Proof, please take a moment to complete your user profile.
+                To get the most out of Verno, please take a moment to complete your user profile.
       <template #action>
         <n-button type="primary" size="small" @click="goToProfile">
           Go to Profile
@@ -53,17 +53,17 @@
         </n-card>
       </n-gi>
       <n-gi>
-        <n-card title="Reputation" class="stats-card reputation-card">
+        <n-card title="Influence" class="stats-card influence-card clickable-card" @click="goToInfluence">
           <template #header-extra>
-            <n-icon :component="StarOutline" class="card-icon reputation-icon" />
+            <n-icon :component="TrophyOutline" class="card-icon influence-icon" />
           </template>
           <n-statistic 
             label="Score" 
-            :value="dashboardStats?.reputation || 85" 
+            :value="dashboardStats?.influence || 1250" 
           />
           <template #footer>
             <n-text depth="3" style="font-size: 12px;">
-              Research Excellence
+              Scientific Impact
             </n-text>
           </template>
         </n-card>
@@ -109,7 +109,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { NGrid, NGi, NCard, NStatistic, NList, NListItem, NAlert, NButton, NSpin, NSkeleton, NEmpty, NText, NIcon } from 'naive-ui';
 import { useRouter } from 'vue-router';
-import { FolderOutline, PeopleOutline, DocumentTextOutline, StarOutline, TimeOutline, GitCommitOutline, EyeOutline, CloudUploadOutline } from '@vicons/ionicons5';
+import { FolderOutline, PeopleOutline, DocumentTextOutline, TrophyOutline, TimeOutline, GitCommitOutline, EyeOutline, CloudUploadOutline } from '@vicons/ionicons5';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -151,7 +151,7 @@ const fetchDashboardStats = async () => {
       projects: { active: 0, total: 0 },
       reviews: 0,
       citations: 0,
-      reputation: null,
+      influence: null,
       recentActivities: []
     };
   } finally {
@@ -178,6 +178,10 @@ const getActivityIcon = (activityType) => {
 
 const goToProfile = () => {
   router.push('/profile');
+};
+
+const goToInfluence = () => {
+  router.push('/influence');
 };
 
 onMounted(() => {
@@ -251,6 +255,15 @@ onMounted(() => {
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
 }
 
+.clickable-card {
+  cursor: pointer;
+}
+
+.clickable-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(251, 191, 36, 0.2) !important;
+}
+
 .card-icon {
   font-size: 24px;
   opacity: 0.8;
@@ -316,23 +329,23 @@ onMounted(() => {
   font-weight: 700;
 }
 
-/* Reputation Card - Orange Theme */
-.reputation-card {
-  background: linear-gradient(135deg, #1f1408 0%, #ea580c 100%) !important;
-  border: 1px solid #f97316 !important;
+/* Influence Card - Gold Theme */
+.influence-card {
+  background: linear-gradient(135deg, #1c1917 0%, #eab308 100%) !important;
+  border: 1px solid #fbbf24 !important;
 }
 
-.reputation-icon {
-  color: #fb923c;
+.influence-icon {
+  color: #fcd34d;
 }
 
-.reputation-card :deep(.n-card-header) {
-  background: rgba(249, 115, 22, 0.1);
-  border-bottom: 1px solid rgba(249, 115, 22, 0.2);
+.influence-card :deep(.n-card-header) {
+  background: rgba(251, 191, 36, 0.1);
+  border-bottom: 1px solid rgba(251, 191, 36, 0.2);
 }
 
-.reputation-card :deep(.n-statistic-value) {
-  color: #fb923c !important;
+.influence-card :deep(.n-statistic-value) {
+  color: #fcd34d !important;
   font-weight: 700;
 }
 

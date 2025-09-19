@@ -35,6 +35,20 @@
         
         <div class="header-actions">
           <n-button-group>
+            <!-- Purchase NFT Button -->
+            <n-button 
+              v-if="availableNFT && availableNFT.status === 'for_sale'"
+              @click="purchaseNFT" 
+              :loading="isPurchasing" 
+              type="primary"
+              size="large"
+            >
+              <template #icon>
+                <n-icon :component="CashOutline" />
+              </template>
+              Buy NFT for {{ availableNFT.price }} {{ availableNFT.currency }}
+            </n-button>
+            
             <n-button @click="downloadDataset" :loading="isDownloading" type="primary">
               <template #icon>
                 <n-icon :component="DownloadOutline" />
@@ -175,6 +189,42 @@
               </div>
             </n-card>
 
+            <!-- NFT Purchase Card -->
+            <n-card v-if="availableNFT" title="🎯 NFT Available for Purchase" class="nft-purchase-card">
+              <div class="nft-purchase-content">
+                <div class="nft-price-display">
+                  <n-icon :component="DiamondOutline" class="nft-icon" />
+                  <div class="price-info">
+                    <div class="price-amount">{{ availableNFT.price }} {{ availableNFT.currency }}</div>
+                    <div class="price-label">Dataset NFT</div>
+                  </div>
+                </div>
+                
+                <div class="nft-description">
+                  {{ availableNFT.description }}
+                </div>
+                
+                <div class="nft-seller-info">
+                  <span class="seller-label">Seller:</span>
+                  <span class="seller-name">{{ availableNFT.seller_username }}</span>
+                </div>
+                
+                <n-button 
+                  @click="purchaseNFT" 
+                  :loading="isPurchasing" 
+                  type="primary"
+                  size="large"
+                  block
+                  class="purchase-button"
+                >
+                  <template #icon>
+                    <n-icon :component="CashOutline" />
+                  </template>
+                  Purchase Dataset NFT
+                </n-button>
+              </div>
+            </n-card>
+
             <n-card title="Privacy & Security" class="privacy-card">
               <div class="privacy-info">
                 <div class="privacy-level">
@@ -238,7 +288,7 @@ import {
   DocumentOutline, CodeOutline, CalendarOutline, TimeOutline, LayersOutline, 
   EyeOutline, SearchOutline, ShieldCheckmarkOutline, GlobeOutline,
   LockClosedOutline, PricetagOutline, DocumentTextOutline, GridOutline, 
-  ServerOutline, DocumentAttachOutline, ImageOutline
+  ServerOutline, DocumentAttachOutline, ImageOutline, CashOutline
 } from '@vicons/ionicons5'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -251,7 +301,9 @@ const message = useMessage()
 const dataset = ref({})
 const isLoading = ref(true)
 const isDownloading = ref(false)
+const isPurchasing = ref(false)
 const currentUser = ref(null)
+const availableNFT = ref(null)
 
 // Computed
 const datasetId = computed(() => {
@@ -408,6 +460,9 @@ const fetchDataset = async () => {
     console.log('Dataset response:', response.data);
     dataset.value = response.data
     
+    // Check for available NFTs for this dataset
+    await checkAvailableNFT()
+    
     // Log view if user is authenticated
     if (currentUser.value?.wallet_address) {
       try {
@@ -444,6 +499,86 @@ const fetchDataset = async () => {
     // User can use the back button to return to explore
   } finally {
     isLoading.value = false
+  }
+}
+
+const checkAvailableNFT = async () => {
+  try {
+    if (!dataset.value?.project_id) return;
+    
+    // Get marketplace NFTs for this project/dataset
+    const response = await axios.get(`http://localhost:3000/api/nfts/marketplace/project/${dataset.value.project_id}`)
+    const marketplaceNFTs = response.data
+    
+    // Find dataset NFT that is listed for sale
+    const datasetNFT = marketplaceNFTs.find(nft => 
+      nft.token_id.includes('DATASET_')
+    )
+    
+    if (datasetNFT) {
+      availableNFT.value = {
+        id: datasetNFT.id,
+        nft_id: datasetNFT.nft_id,
+        price: datasetNFT.price,
+        currency: datasetNFT.currency,
+        description: datasetNFT.description,
+        seller_username: datasetNFT.seller_username,
+        token_id: datasetNFT.token_id,
+        status: 'for_sale'
+      }
+      console.log('Found available NFT for purchase:', availableNFT.value)
+    }
+  } catch (error) {
+    console.error('Failed to check available NFTs:', error)
+    // Don't show error to user as this is not critical
+  }
+}
+
+const purchaseNFT = async () => {
+  if (!availableNFT.value) {
+    message.error('No NFT available for purchase')
+    return
+  }
+  
+  if (!currentUser.value?.wallet_address) {
+    message.error('Please log in to purchase NFTs')
+    return
+  }
+  
+  isPurchasing.value = true
+  
+  try {
+    message.info(`Purchasing NFT for ${availableNFT.value.price} ${availableNFT.value.currency}...`)
+    
+    // Call purchase API
+    const response = await axios.post('http://localhost:3000/api/nfts/marketplace/purchase', {
+      marketplace_id: availableNFT.value.id,
+      buyer_wallet_address: currentUser.value.wallet_address
+    })
+    
+    if (response.data.success) {
+      message.success(`NFT purchased successfully for ${response.data.transaction.price} ${response.data.transaction.currency}!`)
+      
+      // Clear the available NFT since it's been purchased
+      availableNFT.value = null
+      
+      // Optionally redirect to user's NFT collection after a delay
+      setTimeout(() => {
+        router.push('/nft')
+      }, 2000)
+    } else {
+      message.error('Failed to purchase NFT')
+    }
+    
+  } catch (error) {
+    console.error('Purchase failed:', error)
+    if (error.response?.data?.error) {
+      message.error(error.response.data.error)
+    } else {
+      message.error('Failed to purchase NFT')
+    }
+  } finally {
+    isPurchasing.value = false
   }
 }
 
@@ -869,5 +1004,104 @@ onMounted(async () => {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* NFT Purchase Card Styles */
+.nft-purchase-card {
+  border: 2px solid #1f6feb;
+  background: linear-gradient(135deg, rgba(31, 111, 235, 0.1), rgba(31, 111, 235, 0.05));
+  box-shadow: 0 8px 32px rgba(31, 111, 235, 0.2);
+}
+
+.nft-purchase-card .n-card__header {
+  color: #1f6feb;
+  font-weight: 600;
+}
+
+.nft-purchase-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nft-price-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(31, 111, 235, 0.1);
+  border-radius: 12px;
+  border: 1px solid rgba(31, 111, 235, 0.2);
+}
+
+.nft-icon {
+  font-size: 24px;
+  color: #1f6feb;
+}
+
+.price-info {
+  flex: 1;
+}
+
+.price-amount {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f6feb;
+  line-height: 1;
+}
+
+.price-label {
+  font-size: 14px;
+  color: #8b949e;
+  margin-top: 4px;
+}
+
+.nft-description {
+  color: #c9d1d9;
+  line-height: 1.5;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.nft-seller-info {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+}
+
+.seller-label {
+  color: #8b949e;
+  font-size: 14px;
+}
+
+.seller-name {
+  color: #f1f3f4;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.purchase-button {
+  background: linear-gradient(135deg, #1f6feb, #388bfd);
+  border: none;
+  font-weight: 600;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
+  box-shadow: 0 4px 16px rgba(31, 111, 235, 0.3);
+  transition: all 0.3s ease;
+}
+
+.purchase-button:hover {
+  background: linear-gradient(135deg, #388bfd, #58a6ff);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(31, 111, 235, 0.4);
+}
+
+.purchase-button:active {
+  transform: translateY(0);
 }
 </style> 

@@ -3,7 +3,7 @@
     <Navbar />
     <n-layout-content class="main-content">
       <div class="hero-section">
-        <n-h1>Welcome to DeSci-Proof</n-h1>
+        <n-h1>Welcome to Verno</n-h1>
         <n-p>A decentralized platform for verifiable research.</n-p>
         <div class="hero-actions">
             <n-button type="primary" size="large" @click="$router.push('/dashboard')">
@@ -22,7 +22,7 @@
 
       <!-- New Features Section -->
       <div class="features-section">
-        <n-h2>Why DeSci-Proof?</n-h2>
+        <n-h2>Why Verno?</n-h2>
         <n-grid x-gap="24" y-gap="24" :cols="3">
           <n-gi>
             <n-card title="Verifiable Ownership">

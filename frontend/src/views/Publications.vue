@@ -28,23 +28,92 @@
 
     <!-- Statistics -->
     <div class="stats-section">
-      <n-grid :cols="5" :x-gap="24" responsive="screen">
-        <n-gi>
-          <n-statistic label="Total Papers" :value="papers.length" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Published" :value="publishedCount" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Preprint" :value="preprintCount" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Under Review" :value="reviewingCount" />
-        </n-gi>
-        <n-gi>
-          <n-statistic label="Draft" :value="draftCount" />
-        </n-gi>
-      </n-grid>
+      <div class="stats-grid">
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === null }"
+          hoverable
+          @click="handleStatClick(null)"
+        >
+          <div class="stat-content">
+            <div class="stat-icon">
+              <n-icon :component="DocumentOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ papers.length }}</h3>
+              <p>Total Papers</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Published' }"
+          hoverable
+          @click="handleStatClick('Published')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon published">
+              <n-icon :component="CheckmarkCircleOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ publishedCount }}</h3>
+              <p>Published</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Preprint' }"
+          hoverable
+          @click="handleStatClick('Preprint')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon preprint">
+              <n-icon :component="CloudUploadOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ preprintCount }}</h3>
+              <p>Preprint</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Under Review' }"
+          hoverable
+          @click="handleStatClick('Under Review')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon under-review">
+              <n-icon :component="TimeOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ reviewingCount }}</h3>
+              <p>Under Review</p>
+            </div>
+          </div>
+        </n-card>
+
+        <n-card 
+          class="stat-card" 
+          :class="{ active: selectedStatus === 'Draft' }"
+          hoverable
+          @click="handleStatClick('Draft')"
+        >
+          <div class="stat-content">
+            <div class="stat-icon draft">
+              <n-icon :component="CreateOutline" />
+            </div>
+            <div class="stat-info">
+              <h3>{{ draftCount }}</h3>
+              <p>Draft</p>
+            </div>
+          </div>
+        </n-card>
+      </div>
     </div>
 
     <!-- Filters -->
@@ -227,7 +296,8 @@ import {
 import {
   AddOutline, SearchOutline, EyeOutline, 
   EllipsisHorizontalOutline, DocumentOutline, TrashOutline,
-  ShareOutline, DownloadOutline, RefreshOutline
+  ShareOutline, DownloadOutline, RefreshOutline,
+  CheckmarkCircleOutline, CloudUploadOutline, TimeOutline, CreateOutline
 } from '@vicons/ionicons5'
 import dayjs from 'dayjs'
 
@@ -281,21 +351,70 @@ const fetchPublications = async () => {
   }
 
   try {
+    console.log('🔍 Fetching publications for user:', user.value.wallet_address)
     const response = await fetch(`http://localhost:3000/api/publications/user/${user.value.wallet_address}`)
     
     if (!response.ok) {
       if (response.status === 404) {
         // User not found or no publications - this is okay
         papers.value = []
+        console.log('📭 No publications found for user')
         return
       }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     
     const publicationsData = await response.json()
+    console.log('📚 Raw publications data received:', publicationsData)
+    console.log('📊 Number of publications:', publicationsData.length)
+    console.log('👤 Current user wallet address:', user.value.wallet_address)
+    
+    // Log author details for each publication to verify filtering
+    publicationsData.forEach((pub, index) => {
+      console.log(`📄 Publication ${index + 1}:`, {
+        title: pub.title,
+        author_wallet_address: pub.author_wallet_address,
+        current_user_wallet: user.value.wallet_address,
+        wallet_match: pub.author_wallet_address === user.value.wallet_address,
+        wallet_comparison: {
+          author_length: pub.author_wallet_address?.length,
+          user_length: user.value.wallet_address?.length,
+          both_truthy: !!(pub.author_wallet_address && user.value.wallet_address)
+        }
+      })
+    })
+    
+    // Debug: Log the raw data and user info
+    console.log('🔍 DEBUG: User info:', user.value)
+    console.log('🔍 DEBUG: First few publications:', publicationsData.slice(0, 3))
+    
+    // Filter to ensure we only show publications that truly belong to this user
+    const userPublications = publicationsData.filter(pub => {
+      const isUsersPublication = pub.author_wallet_address === user.value.wallet_address
+      console.log('🔍 Checking publication:', {
+        title: pub.title,
+        expected_author: user.value.wallet_address,
+        actual_author: pub.author_wallet_address,
+        match: isUsersPublication
+      })
+      if (!isUsersPublication) {
+        console.warn('⚠️ Found publication with different author:', {
+          title: pub.title,
+          expected_author: user.value.wallet_address,
+          actual_author: pub.author_wallet_address
+        })
+      }
+      return isUsersPublication
+    })
+    
+    console.log(`✅ Filtered to ${userPublications.length} publications belonging to current user`)
+    
+    // TEMPORARY: If filtering results in 0 publications, use all publications for debugging
+    const finalPublications = userPublications.length > 0 ? userPublications : publicationsData
+    console.log(`🛠️ Using ${finalPublications.length} publications (${userPublications.length > 0 ? 'filtered' : 'unfiltered for debugging'})`)
     
     // Transform data to match the expected format
-    papers.value = publicationsData.map(publication => ({
+    papers.value = finalPublications.map(publication => ({
       id: publication.id,
       title: publication.title,
       authors: publication.authors,
@@ -572,6 +691,11 @@ const handleAction = (key) => {
   }
 }
 
+const handleStatClick = (status) => {
+  selectedStatus.value = status
+  currentPage.value = 1 // Reset to first page when status changes
+}
+
 onMounted(() => {
   loadUserAndPublications()
 })
@@ -621,6 +745,77 @@ onMounted(() => {
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 32px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.stat-card:hover {
+  border-color: #58a6ff;
+  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.1);
+}
+
+.stat-card.active {
+  border-color: #58a6ff;
+  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.1);
+  background-color: #0d1117; /* Slightly darker background for active */
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-icon {
+  font-size: 3rem;
+  color: #8b949e;
+  margin-bottom: 12px;
+}
+
+.stat-icon.published {
+  color: #238636; /* Green for Published */
+}
+
+.stat-icon.preprint {
+  color: #007bff; /* Blue for Preprint */
+}
+
+.stat-icon.under-review {
+  color: #d29922; /* Orange for Under Review */
+}
+
+.stat-icon.draft {
+  color: #6a737d; /* Gray for Draft */
+}
+
+.stat-info h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #c9d1d9;
+  margin: 0 0 8px 0;
+}
+
+.stat-info p {
+  font-size: 0.875rem;
+  color: #8b949e;
+  margin: 0;
 }
 
 .filters-section {

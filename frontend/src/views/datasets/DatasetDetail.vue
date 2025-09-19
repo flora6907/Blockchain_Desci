@@ -7,11 +7,11 @@
             <n-icon :component="getDatasetIcon(dataset)" class="dataset-icon" />
             <h1 class="dataset-title">{{ dataset.name || 'Loading...' }}</h1>
             <div class="title-tags">
-              <n-tag :type="getStatusType(dataset.status)" size="small">
+              <n-tag :type="getStatusType(dataset)" size="small">
                 <template #icon>
-                  <n-icon :component="getStatusIcon(dataset.status)" />
+                  <n-icon :component="getStatusIcon(dataset)" />
                 </template>
-                {{ getStatusLabel(dataset.status) }}
+                {{ getStatusLabel(dataset) }}
               </n-tag>
               
               <n-tag :type="getPrivacyType(dataset.effective_privacy_level)" size="small">
@@ -230,6 +230,19 @@
                   Generate ZK Proof
                 </n-button>
                 
+                <!-- Encrypt Dataset - Only for encrypted datasets that are not encrypted yet -->
+                <n-button 
+                  v-if="dataset.privacy_level === 'encrypted' && !dataset.is_encrypted" 
+                  @click="encryptDataset" 
+                  type="primary" 
+                  block
+                >
+                  <template #icon>
+                    <n-icon :component="KeyOutline" />
+                  </template>
+                  Encrypt Dataset
+                </n-button>
+                
                 <!-- View Details - For datasets with existing proof -->
                 <n-button 
                   v-if="dataset.zk_proof_id" 
@@ -382,32 +395,70 @@ const getDatasetIcon = (dataset) => {
   return DocumentOutline
 }
 
-const getStatusType = (status) => {
-  switch (status) {
+// Determine effective status based on dataset privacy level and current state
+const getEffectiveStatus = (dataset) => {
+  if (!dataset) return 'unknown'
+  
+  // If dataset is in draft mode, return as-is
+  if (dataset.status === 'draft') {
+    return 'draft'
+  }
+  
+  // If dataset failed, return as-is
+  if (dataset.status === 'failed') {
+    return 'failed'
+  }
+  
+  // If dataset is still processing, return as-is
+  if (dataset.status === 'processing') {
+    return 'processing'
+  }
+  
+  // Check for pending states based on privacy level
+  if (dataset.privacy_level === 'encrypted' && !dataset.is_encrypted) {
+    return 'pending' // Needs encryption
+  }
+  
+  if (dataset.privacy_level === 'zk_proof_protected' && !dataset.zk_proof_id) {
+    return 'pending' // Needs ZK proof generation
+  }
+  
+  // Otherwise, use the current status
+  return dataset.status
+}
+
+const getStatusType = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return 'success'
     case 'processing': return 'warning'
     case 'failed': return 'error'
     case 'draft': return 'info'
+    case 'pending': return 'warning'
     default: return 'default'
   }
 }
 
-const getStatusIcon = (status) => {
-  switch (status) {
+const getStatusIcon = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return CheckmarkCircleOutline
     case 'processing': return TimeOutline
     case 'failed': return AlertCircleOutline
     case 'draft': return CreateOutline
+    case 'pending': return TimeOutline
     default: return TimeOutline
   }
 }
 
-const getStatusLabel = (status) => {
-  switch (status) {
+const getStatusLabel = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return 'Ready'
     case 'processing': return 'Processing'
     case 'failed': return 'Failed'
     case 'draft': return 'Draft'
+    case 'pending': return 'Pending'
     default: return 'Unknown'
   }
 }
@@ -514,6 +565,11 @@ const handleAction = (key) => {
 const generateZKProof = () => {
   // Navigate to proof generation page
   router.push(`/proof/generate?dataset_id=${datasetId.value}`)
+}
+
+const encryptDataset = () => {
+  // Navigate to encryption page
+  router.push(`/datasets/encrypt?dataset_id=${datasetId.value}`)
 }
 
 const goToAnalytics = () => {

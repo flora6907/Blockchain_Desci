@@ -145,11 +145,11 @@
               </div>
               
               <div class="dataset-tags">
-                <n-tag :type="getStatusType(dataset.status)" size="small" class="status-tag">
+                <n-tag :type="getStatusType(dataset)" size="small" class="status-tag">
                   <template #icon>
-                    <n-icon :component="getStatusIcon(dataset.status)" />
+                    <n-icon :component="getStatusIcon(dataset)" />
                   </template>
-                  {{ getStatusLabel(dataset.status) }}
+                  {{ getStatusLabel(dataset) }}
                 </n-tag>
                 
                 <n-tag :type="getPrivacyType(dataset.effective_privacy_level)" size="small">
@@ -157,13 +157,6 @@
                     <n-icon :component="getPrivacyIcon(dataset.effective_privacy_level)" />
                   </template>
                   {{ getPrivacyLabel(dataset.effective_privacy_level) }}
-                </n-tag>
-                
-                <n-tag v-if="dataset.zk_proof_id" type="success" size="small">
-                  <template #icon>
-                    <n-icon :component="ShieldCheckmarkOutline" />
-                  </template>
-                  ZK Protected
                 </n-tag>
                 
                 <n-tag type="info" size="small" v-if="dataset.category !== 'Other'">
@@ -271,6 +264,31 @@ const goToUpload = () => {
 }
 
 const goToDataset = (datasetId) => {
+  // Find the dataset to check its status
+  const dataset = datasets.value.find(d => d.id === datasetId)
+  if (!dataset) {
+    router.push(`/datasets/${datasetId}`)
+    return
+  }
+  
+  const effectiveStatus = getEffectiveStatus(dataset)
+  
+  // If dataset is pending and needs specific action, redirect appropriately
+  if (effectiveStatus === 'pending') {
+    if (dataset.privacy_level === 'encrypted' && !dataset.is_encrypted) {
+      // Navigate to encryption page
+      router.push(`/datasets/encrypt?dataset_id=${datasetId}`)
+      return
+    }
+    
+    if (dataset.privacy_level === 'zk_proof_protected' && !dataset.zk_proof_id) {
+      // Navigate to ZK proof generation page
+      router.push(`/proof/generate?dataset_id=${datasetId}`)
+      return
+    }
+  }
+  
+  // Default: navigate to dataset detail page
   router.push(`/datasets/${datasetId}`)
 }
 
@@ -306,32 +324,68 @@ const getDatasetIcon = (dataset) => {
   return DocumentOutline
 }
 
-const getStatusType = (status) => {
-  switch (status) {
+// Determine effective status based on dataset privacy level and current state
+const getEffectiveStatus = (dataset) => {
+  // If dataset is in draft mode, return as-is
+  if (dataset.status === 'draft') {
+    return 'draft'
+  }
+  
+  // If dataset failed, return as-is
+  if (dataset.status === 'failed') {
+    return 'failed'
+  }
+  
+  // If dataset is still processing, return as-is
+  if (dataset.status === 'processing') {
+    return 'processing'
+  }
+  
+  // Check for pending states based on privacy level
+  if (dataset.privacy_level === 'encrypted' && !dataset.is_encrypted) {
+    return 'pending' // Needs encryption
+  }
+  
+  if (dataset.privacy_level === 'zk_proof_protected' && !dataset.zk_proof_id) {
+    return 'pending' // Needs ZK proof generation
+  }
+  
+  // Otherwise, use the current status
+  return dataset.status
+}
+
+const getStatusType = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return 'success'
     case 'processing': return 'warning'
     case 'failed': return 'error'
     case 'draft': return 'info'
+    case 'pending': return 'warning'
     default: return 'default'
   }
 }
 
-const getStatusIcon = (status) => {
-  switch (status) {
+const getStatusIcon = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return CheckmarkCircleOutline
     case 'processing': return TimeOutline
     case 'failed': return AlertCircleOutline
     case 'draft': return CreateOutline
+    case 'pending': return TimeOutline
     default: return TimeOutline
   }
 }
 
-const getStatusLabel = (status) => {
-  switch (status) {
+const getStatusLabel = (dataset) => {
+  const effectiveStatus = getEffectiveStatus(dataset)
+  switch (effectiveStatus) {
     case 'ready': return 'Ready'
     case 'processing': return 'Processing'
     case 'failed': return 'Failed'
     case 'draft': return 'Draft'
+    case 'pending': return 'Pending'
     default: return 'Unknown'
   }
 }
@@ -342,6 +396,7 @@ const getPrivacyType = (privacyLevel) => {
     case 'private': return 'warning'
     case 'encrypted': return 'error'
     case 'privacy_protected': return 'success'
+    case 'zk_proof_protected': return 'success'
     default: return 'default'
   }
 }
@@ -352,6 +407,7 @@ const getPrivacyIcon = (privacyLevel) => {
     case 'private': return LockClosedOutline
     case 'encrypted': return KeyOutline
     case 'privacy_protected': return ShieldCheckmarkOutline
+    case 'zk_proof_protected': return ShieldCheckmarkOutline
     default: return GlobeOutline
   }
 }
@@ -362,6 +418,7 @@ const getPrivacyLabel = (privacyLevel) => {
     case 'private': return 'Private'
     case 'encrypted': return 'Encrypted'
     case 'privacy_protected': return 'ZK Protected'
+    case 'zk_proof_protected': return 'ZK Protected'
     default: return 'Unknown'
   }
 }

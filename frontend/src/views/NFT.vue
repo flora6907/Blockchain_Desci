@@ -10,7 +10,7 @@
           </p>
         </div>
         <div class="header-actions">
-          <n-button type="primary" @click="showMintDialog = true">
+          <n-button type="primary" @click="goToMintPage">
             <template #icon>
               <n-icon :component="AddOutline" />
             </template>
@@ -77,8 +77,15 @@
       </n-grid>
     </div>
 
+    <!-- Loading State -->
+    <div v-if="isLoadingNFTs" class="loading-container">
+      <n-spin size="large">
+        <template #description>Loading your NFTs...</template>
+      </n-spin>
+    </div>
+
     <!-- NFT Grid -->
-    <div class="nft-grid">
+    <div v-else class="nft-grid">
       <div 
         v-for="nft in paginatedNFTs" 
         :key="nft.id" 
@@ -110,15 +117,19 @@
           <div class="nft-header">
             <h3 class="nft-title">{{ nft.title }}</h3>
             <div class="nft-price">
-              <span class="price-value">{{ nft.price }} ETH</span>
-              <span class="price-usd">${{ (nft.price * 2500).toFixed(0) }}</span>
+              <span class="price-value">
+                {{ nft.openAccess ? 'Free' : `${nft.price || nft.accessPrice || 0} ETH` }}
+              </span>
+              <span v-if="!nft.openAccess" class="price-usd">
+                ${{ ((nft.price || nft.accessPrice || 0) * 2500).toFixed(0) }}
+              </span>
             </div>
           </div>
           
           <div class="nft-meta">
             <div class="meta-item">
               <n-icon :component="PersonOutline" class="meta-icon" />
-              <span>{{ nft.authors.join(', ') }}</span>
+              <span>{{ Array.isArray(nft.authors) ? nft.authors.join(', ') : nft.authors || 'Unknown' }}</span>
             </div>
             <div class="meta-item">
               <n-icon :component="CalendarOutline" class="meta-icon" />
@@ -132,14 +143,14 @@
           
           <div class="nft-tags">
             <n-tag 
-              v-for="tag in nft.tags.slice(0, 2)" 
+              v-for="tag in (Array.isArray(nft.tags) ? nft.tags : []).slice(0, 2)" 
               :key="tag" 
               size="small" 
               class="nft-tag"
             >
               {{ tag }}
             </n-tag>
-            <span v-if="nft.tags.length > 2" class="more-tags">
+            <span v-if="Array.isArray(nft.tags) && nft.tags.length > 2" class="more-tags">
               +{{ nft.tags.length - 2 }} more
             </span>
           </div>
@@ -151,11 +162,27 @@
               </template>
               Download
             </n-button>
-            <n-button size="small" type="primary" @click.stop="listForSale(nft)">
+            <n-button 
+              v-if="!nft.openAccess && (nft.price > 0 || nft.accessPrice > 0)"
+              size="small" 
+              type="primary" 
+              @click.stop="listForSale(nft)"
+            >
               <template #icon>
                 <n-icon :component="CashOutline" />
               </template>
               List for Sale
+            </n-button>
+            <n-button 
+              v-else
+              size="small" 
+              disabled
+              @click.stop
+            >
+              <template #icon>
+                <n-icon :component="CashOutline" />
+              </template>
+              Free NFT
             </n-button>
           </div>
         </div>
@@ -204,9 +231,38 @@
           <n-form-item label="Category" path="category">
             <n-select v-model:value="mintForm.category" :options="categoryOptions" placeholder="Select category" />
           </n-form-item>
-          <n-form-item label="Price (ETH)" path="price">
-            <n-input-number v-model:value="mintForm.price" :min="0" :step="0.001" placeholder="0.000" />
+          
+          <n-form-item label="Access Type" path="accessType">
+            <n-radio-group v-model:value="mintForm.accessType">
+              <n-radio value="open">Open Access (Free)</n-radio>
+              <n-radio value="restricted">Restricted Access</n-radio>
+            </n-radio-group>
           </n-form-item>
+          
+          <!-- Revenue sharing for restricted access -->
+          <div v-if="mintForm.accessType === 'restricted'" class="revenue-sharing-section">
+            <n-form-item label="Revenue Sharing" path="authorShares">
+              <div class="author-shares">
+                <div v-for="(author, index) in parsedAuthors" :key="index" class="author-share-item">
+                  <span class="author-name">{{ author.trim() }}</span>
+                  <n-input-number 
+                    v-model:value="mintForm.authorShares[index]" 
+                    :min="0" 
+                    :max="100" 
+                    :step="1"
+                    suffix="%"
+                    :placeholder="`${Math.floor(100 / parsedAuthors.length)}`"
+                  />
+                </div>
+              </div>
+              <template #feedback>
+                <span class="share-feedback">
+                  Total: {{ totalShares }}% (must equal 100%)
+                </span>
+              </template>
+            </n-form-item>
+          </div>
+          
           <n-form-item label="Paper File" path="file">
             <n-upload
               :file-list="mintForm.fileList"
@@ -337,12 +393,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { 
   NButton, NInput, NSelect, NGrid, NGi, NStatistic, NTag, NIcon, 
   NPagination, NEmpty, NModal, NForm, NFormItem, NInputNumber, 
-  NUpload, NSpace, useMessage 
+  NUpload, NSpace, NSpin, NRadio, NRadioGroup, useMessage 
 } from 'naive-ui'
 import {
   AddOutline, SearchOutline, ShareOutline, LinkOutline, PersonOutline,
@@ -352,6 +408,7 @@ import dayjs from 'dayjs'
 
 const message = useMessage()
 const route = useRoute()
+const router = useRouter()
 
 // Reactive data
 const searchQuery = ref('')
@@ -370,102 +427,17 @@ const isListing = ref(false)
 const selectedNFT = ref(null)
 const listFormRef = ref(null)
 
-// Mock NFT data
-const nfts = ref([
-  {
-    id: 1,
-    title: "Quantum Computing Applications in Cryptography",
-    authors: ["Dr. Alice Johnson", "Prof. Bob Smith"],
-    category: "Computer Science",
-    tags: ["Quantum Computing", "Cryptography", "Security", "Algorithms"],
-    image: "https://via.placeholder.com/300x400/1a1a2e/eee?text=Quantum+Computing",
-    price: 0.25,
-    status: "Minted",
-    mintedAt: "2024-01-15",
-    views: 1250,
-    tokenId: "0x1234...5678",
-    blockchain: "Ethereum",
-    fileUrl: "https://example.com/papers/quantum-computing-cryptography.pdf"
-  },
-  {
-    id: 2,
-    title: "Machine Learning in Healthcare Diagnostics",
-    authors: ["Dr. Carol Davis", "Dr. David Wilson"],
-    category: "Medical Science",
-    tags: ["Machine Learning", "Healthcare", "Diagnostics", "AI"],
-    image: "https://via.placeholder.com/300x400/2d1b69/eee?text=ML+Healthcare",
-    price: 0.18,
-    status: "Listed",
-    mintedAt: "2024-01-20",
-    views: 890,
-    tokenId: "0x2345...6789",
-    blockchain: "Ethereum",
-    fileUrl: "https://example.com/papers/ml-healthcare-diagnostics.pdf"
-  },
-  {
-    id: 3,
-    title: "Sustainable Energy Solutions for Urban Areas",
-    authors: ["Prof. Eve Brown", "Dr. Frank Miller"],
-    category: "Environmental Science",
-    tags: ["Renewable Energy", "Sustainability", "Urban Planning", "Green Tech"],
-    image: "https://via.placeholder.com/300x400/11998e/eee?text=Sustainable+Energy",
-    price: 0.32,
-    status: "Sold",
-    mintedAt: "2024-01-10",
-    views: 2100,
-    tokenId: "0x3456...7890",
-    blockchain: "Ethereum"
-  },
-  {
-    id: 4,
-    title: "Blockchain Consensus Mechanisms: A Comparative Study",
-    authors: ["Dr. Grace Lee", "Prof. Henry Taylor"],
-    category: "Computer Science",
-    tags: ["Blockchain", "Consensus", "Distributed Systems", "Cryptocurrency"],
-    image: "https://via.placeholder.com/300x400/8b5cf6/eee?text=Blockchain+Study",
-    price: 0.42,
-    status: "Minted",
-    mintedAt: "2024-02-01",
-    views: 1850,
-    tokenId: "0x4567...8901",
-    blockchain: "Ethereum"
-  },
-  {
-    id: 5,
-    title: "Gene Therapy Advances in Rare Diseases",
-    authors: ["Dr. Ivy Chen", "Prof. Jack Anderson"],
-    category: "Biotechnology",
-    tags: ["Gene Therapy", "Rare Diseases", "Genetics", "Medical Research"],
-    image: "https://via.placeholder.com/300x400/ef4444/eee?text=Gene+Therapy",
-    price: 0.28,
-    status: "Listed",
-    mintedAt: "2024-02-05",
-    views: 1650,
-    tokenId: "0x5678...9012",
-    blockchain: "Ethereum"
-  },
-  {
-    id: 6,
-    title: "Climate Change Impact on Marine Ecosystems",
-    authors: ["Dr. Karen White", "Prof. Leo Garcia"],
-    category: "Marine Biology",
-    tags: ["Climate Change", "Marine Life", "Ecosystem", "Conservation"],
-    image: "https://via.placeholder.com/300x400/06b6d4/eee?text=Marine+Climate",
-    price: 0.22,
-    status: "Minted",
-    mintedAt: "2024-02-08",
-    views: 1120,
-    tokenId: "0x6789...0123",
-    blockchain: "Ethereum"
-  }
-])
+// NFT data from API
+const nfts = ref([])
+const isLoadingNFTs = ref(true)
 
 // Form data for minting
 const mintForm = ref({
   title: '',
   authors: '',
   category: null,
-  price: 0,
+  accessType: 'open', // 'open' or 'restricted'
+  authorShares: [], // Array of percentage shares for each author
   fileList: []
 })
 
@@ -527,15 +499,20 @@ const mintRules = {
   category: [
     { required: true, message: 'Please select category', trigger: 'change' }
   ],
-  price: [
+  accessType: [
+    { required: true, message: 'Please select access type', trigger: 'change' }
+  ],
+  authorShares: [
     { 
       validator: (rule, value) => {
-        if (value === null || value === undefined || value === '') {
-          return new Error('Please enter price')
-        }
-        const numValue = Number(value)
-        if (isNaN(numValue) || numValue < 0) {
-          return new Error('Price must be a number greater than or equal to 0')
+        if (mintForm.value.accessType === 'restricted') {
+          if (!value || value.length === 0) {
+            return new Error('Please set revenue sharing for all authors')
+          }
+          const total = value.reduce((sum, share) => sum + (share || 0), 0)
+          if (total !== 100) {
+            return new Error('Total revenue shares must equal 100%')
+          }
         }
         return true
       }, 
@@ -650,7 +627,89 @@ const floorPrice = computed(() => {
   return Math.min(...prices)
 })
 
+// Mint form computed properties
+const parsedAuthors = computed(() => {
+  if (!mintForm.value.authors) return []
+  return mintForm.value.authors.split(',').map(a => a.trim()).filter(a => a.length > 0)
+})
+
+const totalShares = computed(() => {
+  return mintForm.value.authorShares.reduce((sum, share) => sum + (share || 0), 0)
+})
+
+// Watch for changes in authors to initialize shares
+watch(parsedAuthors, (newAuthors) => {
+  if (newAuthors.length > 0) {
+    // Initialize shares array if needed
+    if (mintForm.value.authorShares.length !== newAuthors.length) {
+      const equalShare = Math.floor(100 / newAuthors.length)
+      const remainder = 100 - (equalShare * newAuthors.length)
+      
+      mintForm.value.authorShares = newAuthors.map((_, index) => 
+        index === 0 ? equalShare + remainder : equalShare
+      )
+    }
+  }
+})
+
 // Methods
+const loadNFTs = async () => {
+  isLoadingNFTs.value = true
+  try {
+    // Get current user's wallet address
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      message.error('Please log in to view your NFTs')
+      return
+    }
+    
+    const user = JSON.parse(userData)
+    const walletAddress = user.wallet_address
+    
+    if (!walletAddress) {
+      message.error('Wallet address not found')
+      return
+    }
+    
+    // Fetch NFTs from backend API
+    const response = await fetch(`http://localhost:3000/api/nfts/user/${walletAddress}`)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const nftData = await response.json()
+    
+    // Transform the data to match the expected format
+    nfts.value = nftData.map(nft => ({
+      id: nft.id,
+      title: nft.title,
+      authors: Array.isArray(nft.authors) ? nft.authors.map(a => a.name || a.address || a) : [nft.owner?.username || 'Unknown'],
+      category: nft.category || 'Research',
+      tags: nft.keywords || nft.tags || ['Research', 'NFT'],
+      image: nft.image || `https://via.placeholder.com/300x400/1a1a2e/eee?text=${encodeURIComponent((nft.title || 'NFT').substring(0, 20))}`,
+      price: parseFloat(nft.price || nft.accessPrice || 0),
+      status: nft.status || 'Minted',
+      mintedAt: nft.mintedAt || nft.created_at,
+      views: nft.views || 0,
+      tokenId: nft.tokenId,
+      blockchain: 'Ethereum',
+      assetType: nft.assetType,
+      openAccess: nft.openAccess,
+      accessPrice: nft.accessPrice,
+      contentCID: nft.contentCID
+    }))
+    
+    console.log('Loaded NFTs:', nfts.value)
+    
+  } catch (error) {
+    console.error('Failed to load NFTs:', error)
+    message.error('Failed to load NFTs')
+  } finally {
+    isLoadingNFTs.value = false
+  }
+}
+
 const formatDate = (date) => {
   return dayjs(date).format('MMM DD, YYYY')
 }
@@ -674,8 +733,11 @@ const handleFileChange = ({ fileList }) => {
 }
 
 const viewNFTDetails = (nft) => {
-  message.info(`Viewing details for: ${nft.title}`)
-  // TODO: Navigate to NFT detail page
+  router.push(`/nft/${nft.id}`)
+}
+
+const goToMintPage = () => {
+  router.push('/nft/mint')
 }
 
 const shareNFT = (nft) => {
@@ -750,13 +812,19 @@ const downloadPaper = async (nft) => {
 }
 
 const listForSale = (nft) => {
+  // Check if NFT is free
+  if (nft.openAccess === true || nft.price === 0 || nft.accessPrice === 0) {
+    message.warning('Free NFTs cannot be listed for sale')
+    return
+  }
+  
   selectedNFT.value = nft
   // Pre-fill form with current NFT data
   listForm.value = {
-    price: nft.price || 0,
+    price: nft.price || nft.accessPrice || 0.1,
     duration: '1w', // Default to 1 week
     royalty: 2.5,
-    description: `Research paper: ${nft.title} by ${nft.authors.join(', ')}`
+    description: `${nft.assetType || 'Research'}: ${nft.title} by ${Array.isArray(nft.authors) ? nft.authors.join(', ') : nft.authors || 'Author'}`
   }
   showListDialog.value = true
 }
@@ -829,28 +897,61 @@ const mintNFT = async () => {
     await mintFormRef.value?.validate()
     isMinting.value = true
     
-    // Simulate minting process
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    
-    const newNFT = {
-      id: nfts.value.length + 1,
-      title: mintForm.value.title,
-      authors: mintForm.value.authors.split(',').map(a => a.trim()),
-      category: mintForm.value.category,
-      tags: ['New Research', 'Blockchain', 'NFT'],
-      image: `https://via.placeholder.com/300x400/10b981/eee?text=${encodeURIComponent(mintForm.value.title.substring(0, 20))}`,
-      price: mintForm.value.price,
-      status: 'Minted',
-      mintedAt: dayjs().format('YYYY-MM-DD'),
-      views: 0,
-      tokenId: `0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)}`,
-      blockchain: 'Ethereum',
-      fileUrl: mintForm.value.fileList.length > 0 
-        ? `https://example.com/papers/${mintForm.value.title.replace(/\s+/g, '-').toLowerCase()}.pdf`
-        : null
+    // Get current user's wallet address
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      message.error('Please log in to mint NFTs')
+      return
     }
     
-    nfts.value.unshift(newNFT)
+    const user = JSON.parse(userData)
+    const walletAddress = user.wallet_address
+    
+    if (!walletAddress) {
+      message.error('Wallet address not found')
+      return
+    }
+    
+    // Prepare author data with revenue shares
+    const authorsData = parsedAuthors.value.map((authorName, index) => ({
+      address: index === 0 ? walletAddress : `0x${Math.random().toString(16).substr(2, 40)}`, // First author gets user's address
+      name: authorName.trim(),
+      share: mintForm.value.accessType === 'restricted' ? mintForm.value.authorShares[index] : 0
+    }))
+    
+    // Prepare mint data
+    const mintData = {
+      assetType: 'Custom',
+      selectedAsset: 0, // Custom asset
+      title: mintForm.value.title,
+      category: mintForm.value.category,
+      keywords: JSON.stringify(['Research', 'NFT', 'Blockchain']),
+      description: `Research NFT for: ${mintForm.value.title}`,
+      authors: JSON.stringify(authorsData),
+      contentCID: `QmCustom${Date.now()}${Math.random().toString(36).substr(2, 8)}`,
+      openAccess: mintForm.value.accessType === 'open',
+      accessPrice: 0, // Price will be set later when listing for sale
+      isLimitedEdition: false,
+      editionSize: 0,
+      coverImageCID: `QmImage${Date.now()}${Math.random().toString(36).substr(2, 8)}`
+    }
+    
+    // Call backend API to mint NFT
+    const response = await fetch('http://localhost:3000/api/nfts/mint', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(mintData)
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Failed to mint NFT')
+    }
+    
+    const result = await response.json()
+    
     showMintDialog.value = false
     message.success('NFT minted successfully!')
     
@@ -859,17 +960,26 @@ const mintNFT = async () => {
       title: '',
       authors: '',
       category: null,
-      price: 0,
+      accessType: 'open',
+      authorShares: [],
       fileList: []
     }
+    
+    // Reload NFTs to show the new one
+    await loadNFTs()
+    
   } catch (error) {
-    message.error('Failed to mint NFT')
+    console.error('Mint error:', error)
+    message.error(error.message || 'Failed to mint NFT')
   } finally {
     isMinting.value = false
   }
 }
 
 onMounted(() => {
+  // Load NFTs from backend
+  loadNFTs()
+  
   // Check if we should open mint dialog and pre-fill with paper data
   if (route.query.mint === 'true') {
     showMintDialog.value = true
@@ -888,7 +998,8 @@ onMounted(() => {
           title: paperData.title,
           authors: paperData.authors,
           category: paperData.category,
-          price: 0.1, // 默认价格
+          accessType: 'restricted', // 默认为限制访问，用户可以修改
+          authorShares: [], // 将在authors改变时自动初始化
           fileList: []
         }
         
@@ -907,7 +1018,8 @@ onMounted(() => {
         title: `Research Paper #${paperId}`,
         authors: 'Dr. Jane Smith, Dr. John Doe',
         category: 'Research',
-        price: 0.1,
+        accessType: 'restricted',
+        authorShares: [], // 将在authors改变时自动初始化
         fileList: []
       }
       
@@ -1132,6 +1244,14 @@ onMounted(() => {
   margin-top: 32px;
 }
 
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+  padding: 60px 20px;
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -1151,6 +1271,39 @@ onMounted(() => {
 
 .mint-form {
   padding: 20px 0;
+}
+
+.revenue-sharing-section {
+  margin: 16px 0;
+  padding: 16px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+}
+
+.author-shares {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.author-share-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.author-name {
+  flex: 1;
+  font-weight: 500;
+  color: #c9d1d9;
+}
+
+.share-feedback {
+  font-size: 0.8rem;
+  color: #8b949e;
+  margin-top: 4px;
 }
 
 /* List for Sale Dialog Styles */
