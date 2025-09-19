@@ -3,13 +3,19 @@
     <!-- Page Header -->
     <div class="page-header">
       <div class="header-content">
-        <div class="header-text">
-          <h1 class="page-title">My Publications</h1>
-          <p class="page-description">
-            Manage your research publications, track submission status, and monitor peer review progress
-          </p>
-        </div>
         <div class="header-actions">
+          <n-button @click="refreshPublications">
+            <template #icon>
+              <n-icon :component="RefreshOutline" />
+            </template>
+            Refresh
+          </n-button>
+          <n-button type="primary" @click="importPaper">
+            <template #icon>
+              <n-icon :component="DownloadOutline" />
+            </template>
+            Import Published Paper
+          </n-button>
           <n-button type="primary" @click="startSubmission">
             <template #icon>
               <n-icon :component="AddOutline" />
@@ -22,12 +28,15 @@
 
     <!-- Statistics -->
     <div class="stats-section">
-      <n-grid :cols="4" :x-gap="24">
+      <n-grid :cols="5" :x-gap="24" responsive="screen">
         <n-gi>
           <n-statistic label="Total Papers" :value="papers.length" />
         </n-gi>
         <n-gi>
           <n-statistic label="Published" :value="publishedCount" />
+        </n-gi>
+        <n-gi>
+          <n-statistic label="Preprint" :value="preprintCount" />
         </n-gi>
         <n-gi>
           <n-statistic label="Under Review" :value="reviewingCount" />
@@ -79,7 +88,27 @@
 
     <!-- Papers List -->
     <div class="papers-section">
-      <div v-if="filteredPapers.length === 0" class="empty-state">
+      <div v-if="loading" class="empty-state">
+        <n-empty description="Loading publications..." size="large">
+          <template #extra>
+            <n-button type="primary" @click="startSubmission">
+              Submit Your First Paper
+            </n-button>
+          </template>
+        </n-empty>
+      </div>
+      
+      <div v-else-if="error" class="empty-state">
+        <n-empty :description="error" size="large">
+          <template #extra>
+            <n-button type="primary" @click="startSubmission">
+              Submit Your First Paper
+            </n-button>
+          </template>
+        </n-empty>
+      </div>
+
+      <div v-else-if="filteredPapers.length === 0" class="empty-state">
         <n-empty description="No papers found" size="large">
           <template #extra>
             <n-button type="primary" @click="startSubmission">
@@ -149,17 +178,6 @@
             <div class="action-buttons">
               <n-button 
                 size="small" 
-                @click.stop="editPaper(paper)"
-                :disabled="!canEdit(paper.status)"
-              >
-                <template #icon>
-                  <n-icon :component="CreateOutline" />
-                </template>
-                Edit
-              </n-button>
-              
-              <n-button 
-                size="small" 
                 @click.stop="previewPaper(paper)"
               >
                 <template #icon>
@@ -207,9 +225,9 @@ import {
   NPagination, NEmpty, NProgress, NDropdown, useMessage 
 } from 'naive-ui'
 import {
-  AddOutline, SearchOutline, CreateOutline, EyeOutline, 
+  AddOutline, SearchOutline, EyeOutline, 
   EllipsisHorizontalOutline, DocumentOutline, TrashOutline,
-  ShareOutline, DownloadOutline
+  ShareOutline, DownloadOutline, RefreshOutline
 } from '@vicons/ionicons5'
 import dayjs from 'dayjs'
 
@@ -222,76 +240,90 @@ const selectedStatus = ref(null)
 const selectedCategory = ref(null)
 const sortBy = ref('newest')
 const currentPage = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(6)
+const loading = ref(true)
+const error = ref(null)
+const user = ref(null)
 
-// Mock papers data
-const papers = ref([
-  {
-    id: 1,
-    title: "Quantum Machine Learning for Drug Discovery: A Comprehensive Survey",
-    authors: ["Dr. Sarah Chen", "Prof. Michael Zhang", "Dr. Lisa Wang"],
-    abstract: "This paper presents a comprehensive survey of quantum machine learning applications in drug discovery, exploring the potential of quantum algorithms to accelerate pharmaceutical research and development processes.",
-    keywords: ["Quantum Computing", "Machine Learning", "Drug Discovery", "Pharmaceutical Research", "Quantum Algorithms"],
-    category: "Computer Science",
-    status: "Published",
-    createdAt: "2024-01-15",
-    publishedAt: "2024-02-20",
-    citationCount: 45,
-    downloadCount: 1250,
-    doi: "10.1000/xyz123",
-    peerReviewId: null
-  },
-  {
-    id: 2,
-    title: "Sustainable Energy Storage Systems: A Machine Learning Approach",
-    authors: ["Prof. David Liu", "Dr. Emma Thompson"],
-    abstract: "We propose novel machine learning algorithms for optimizing sustainable energy storage systems, focusing on battery management and grid integration for renewable energy sources.",
-    keywords: ["Energy Storage", "Machine Learning", "Sustainability", "Battery Management", "Grid Integration"],
-    category: "Environmental Science",
-    status: "Under Review",
-    createdAt: "2024-01-20",
-    submittedAt: "2024-02-01",
-    reviewDeadline: "2024-03-15",
-    peerReviewId: "PR-2024-001"
-  },
-  {
-    id: 3,
-    title: "Blockchain-Based Healthcare Data Management with Zero-Knowledge Proofs",
-    authors: ["Dr. Alex Kim", "Prof. Jennifer Lee", "Dr. Robert Brown"],
-    abstract: "This study explores the implementation of blockchain technology with zero-knowledge proofs for secure and private healthcare data management systems.",
-    keywords: ["Blockchain", "Healthcare", "Zero-Knowledge Proofs", "Data Management", "Privacy"],
-    category: "Computer Science",
-    status: "Draft",
-    createdAt: "2024-02-01",
-    lastModified: "2024-02-15"
-  },
-  {
-    id: 4,
-    title: "Gene Therapy Optimization Using Artificial Intelligence",
-    authors: ["Dr. Maria Garcia", "Prof. James Wilson"],
-    abstract: "An innovative approach to gene therapy optimization leveraging artificial intelligence algorithms to improve treatment efficacy and reduce side effects.",
-    keywords: ["Gene Therapy", "Artificial Intelligence", "Medical Treatment", "Optimization", "Biotechnology"],
-    category: "Biotechnology",
-    status: "Revision Required",
-    createdAt: "2024-01-10",
-    submittedAt: "2024-01-25",
-    reviewComments: "Minor revisions needed in methodology section",
-    peerReviewId: "PR-2024-002"
-  },
-  {
-    id: 5,
-    title: "Climate Change Impact on Marine Biodiversity: A Deep Learning Analysis",
-    authors: ["Dr. Ocean Blue", "Prof. Green Earth"],
-    abstract: "Using deep learning techniques to analyze the impact of climate change on marine biodiversity patterns across different oceanic regions.",
-    keywords: ["Climate Change", "Marine Biology", "Deep Learning", "Biodiversity", "Ocean Science"],
-    category: "Marine Biology",
-    status: "Preprint",
-    createdAt: "2024-02-05",
-    publishedAt: "2024-02-10",
-    preprintServer: "bioRxiv",
-    downloadCount: 680
+// Real publications data from API
+const papers = ref([])
+
+// Load user data and fetch publications
+const loadUserAndPublications = async () => {
+  try {
+    loading.value = true
+    
+    // Get user from localStorage
+    const storedUser = localStorage.getItem('user')
+    if (!storedUser) {
+      console.error('No user found in localStorage')
+      error.value = 'Please log in to view your publications'
+      return
+    }
+    
+    user.value = JSON.parse(storedUser)
+    
+    // Fetch publications for this user
+    await fetchPublications()
+    
+  } catch (err) {
+    console.error('Failed to load user and publications:', err)
+    error.value = 'Failed to load publication data'
+  } finally {
+    loading.value = false
   }
-])
+}
+
+const fetchPublications = async () => {
+  if (!user.value || !user.value.wallet_address) {
+    console.error('No user or wallet address available')
+    return
+  }
+
+  try {
+    const response = await fetch(`http://localhost:3000/api/publications/user/${user.value.wallet_address}`)
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        // User not found or no publications - this is okay
+        papers.value = []
+        return
+      }
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const publicationsData = await response.json()
+    
+    // Transform data to match the expected format
+    papers.value = publicationsData.map(publication => ({
+      id: publication.id,
+      title: publication.title,
+      authors: publication.authors,
+      abstract: publication.abstract || 'No abstract provided',
+      keywords: publication.keywords || [],
+      category: publication.category || 'Other',
+      status: publication.status,
+      createdAt: publication.createdAt,
+      publishedAt: publication.publishedAt,
+      submittedAt: publication.submittedAt,
+      lastModified: publication.lastModified,
+      doi: publication.doi,
+      citationCount: publication.citationCount || 0,
+      downloadCount: publication.downloadCount || 0,
+      reviewDeadline: publication.reviewDeadline,
+      peerReviewId: publication.peerReviewId,
+      reviewComments: publication.reviewComments,
+      preprintServer: publication.preprintServer
+    }))
+    
+    error.value = null
+  } catch (err) {
+    console.error('Failed to fetch publications:', err)
+    error.value = 'Failed to load publications'
+    // Set empty array as fallback
+    papers.value = []
+  }
+}
 
 // Options
 const statusOptions = [
@@ -323,7 +355,11 @@ const sortOptions = [
 
 // Computed properties
 const publishedCount = computed(() => 
-  papers.value.filter(p => p.status === 'Published' || p.status === 'Preprint').length
+  papers.value.filter(p => p.status === 'Published').length
+)
+
+const preprintCount = computed(() => 
+  papers.value.filter(p => p.status === 'Preprint').length
 )
 
 const reviewingCount = computed(() => 
@@ -436,9 +472,7 @@ const getProgressStatus = (status) => {
   }
 }
 
-const canEdit = (status) => {
-  return ['Draft', 'Revision Required'].includes(status)
-}
+
 
 const getActionOptions = (paper) => {
   const options = [
@@ -478,20 +512,37 @@ const handlePageSizeChange = (newPageSize) => {
   currentPage.value = 1
 }
 
+const refreshPublications = () => {
+  loadUserAndPublications()
+}
+
 const startSubmission = () => {
   router.push('/papers/submit')
+}
+
+const importPaper = () => {
+  router.push('/papers/import')
 }
 
 const viewPaper = (paper) => {
   router.push(`/papers/${paper.id}`)
 }
 
-const editPaper = (paper) => {
-  if (canEdit(paper.status)) {
-    router.push(`/papers/${paper.id}/edit`)
-  } else {
-    message.warning('This paper cannot be edited in its current status')
-  }
+
+
+const deletePaper = async (paper) => {
+  // TODO: Implement delete functionality with API call
+  console.log('Delete paper:', paper.id)
+}
+
+const downloadPaper = (paper) => {
+  // TODO: Implement download functionality
+  console.log('Download paper:', paper.id)
+}
+
+const sharePaper = (paper) => {
+  // TODO: Implement share functionality
+  console.log('Share paper:', paper.id)
 }
 
 const previewPaper = (paper) => {
@@ -522,7 +573,7 @@ const handleAction = (key) => {
 }
 
 onMounted(() => {
-  // Initialize page
+  loadUserAndPublications()
 })
 </script>
 
@@ -539,9 +590,15 @@ onMounted(() => {
 
 .header-content {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: flex-start;
   gap: 24px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .page-title {

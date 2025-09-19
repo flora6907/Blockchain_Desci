@@ -79,7 +79,25 @@
 
     <!-- Reviews List -->
     <div class="reviews-section">
-      <div v-if="filteredReviews.length === 0" class="empty-state">
+      <div v-if="loading" class="empty-state">
+        <n-empty description="Loading reviews..." size="large">
+          <template #extra>
+            <n-button @click="refreshReviews">
+              Retry
+            </n-button>
+          </template>
+        </n-empty>
+      </div>
+      <div v-else-if="error" class="empty-state">
+        <n-empty :description="error" size="large">
+          <template #extra>
+            <n-button @click="refreshReviews">
+              Retry
+            </n-button>
+          </template>
+        </n-empty>
+      </div>
+      <div v-else-if="filteredReviews.length === 0" class="empty-state">
         <n-empty description="No review assignments found" size="large">
           <template #extra>
             <n-button @click="refreshReviews">
@@ -278,90 +296,89 @@ const selectedUrgency = ref(null)
 const sortBy = ref('deadline')
 const currentPage = ref(1)
 const pageSize = ref(10)
+const loading = ref(true)
+const error = ref(null)
+const user = ref(null)
 
-// Mock reviews data
-const reviews = ref([
-  {
-    id: 1,
-    paperTitle: "Advanced Quantum Cryptography for Secure Communications",
-    authors: ["Dr. Alice Johnson", "Prof. Bob Smith", "Dr. Charlie Brown"],
-    abstract: "This paper presents novel approaches to quantum cryptography, focusing on enhanced security protocols for next-generation communication systems.",
-    keywords: ["Quantum Cryptography", "Security", "Communications", "Protocols", "Quantum Computing"],
-    category: "Computer Science",
-    journal: "Journal of Quantum Computing",
-    status: "Pending",
-    urgency: "High",
-    assignedAt: "2024-02-10",
-    deadline: "2024-02-25",
-    estimatedHours: 8,
-    reviewId: "REV-2024-001"
-  },
-  {
-    id: 2,
-    paperTitle: "Machine Learning Applications in Climate Modeling",
-    authors: ["Dr. Emma Wilson", "Prof. David Lee"],
-    abstract: "We explore the integration of machine learning techniques with traditional climate modeling approaches to improve prediction accuracy and reduce computational costs.",
-    keywords: ["Machine Learning", "Climate Modeling", "Prediction", "Environmental Science", "AI"],
-    category: "Environmental Science",
-    journal: "Climate Science Review",
-    status: "In Progress",
-    urgency: "Medium",
-    assignedAt: "2024-02-01",
-    deadline: "2024-02-28",
-    estimatedHours: 12,
-    reviewId: "REV-2024-002",
-    progress: 60
-  },
-  {
-    id: 3,
-    paperTitle: "Blockchain-Based Supply Chain Transparency",
-    authors: ["Prof. Sarah Chen", "Dr. Michael Zhang"],
-    abstract: "This study examines the implementation of blockchain technology for enhancing transparency and traceability in global supply chain management.",
-    keywords: ["Blockchain", "Supply Chain", "Transparency", "Traceability", "Management"],
-    category: "Computer Science",
-    journal: "Blockchain Technology Review",
-    status: "Under Review",
-    urgency: "Low",
-    assignedAt: "2024-01-20",
-    deadline: "2024-03-05",
-    estimatedHours: 10,
-    reviewId: "REV-2024-003",
-    submittedAt: "2024-02-15"
-  },
-  {
-    id: 4,
-    paperTitle: "Gene Editing Ethics in Modern Medicine",
-    authors: ["Dr. Lisa Garcia", "Prof. James Wilson", "Dr. Anna Lee"],
-    abstract: "An ethical analysis of gene editing technologies in medical treatments, examining the moral implications and regulatory frameworks needed for responsible implementation.",
-    keywords: ["Gene Editing", "Ethics", "Medicine", "Regulation", "Bioethics"],
-    category: "Bioethics",
-    journal: "Medical Ethics Quarterly",
-    status: "Completed",
-    urgency: "Medium",
-    assignedAt: "2024-01-15",
-    deadline: "2024-02-15",
-    estimatedHours: 15,
-    reviewId: "REV-2024-004",
-    completedAt: "2024-02-10",
-    rating: 4.5
-  },
-  {
-    id: 5,
-    paperTitle: "Sustainable Energy Storage Solutions",
-    authors: ["Dr. Robert Green", "Prof. Maria Rodriguez"],
-    abstract: "Investigation of novel materials and technologies for sustainable energy storage, focusing on environmental impact and economic viability.",
-    keywords: ["Energy Storage", "Sustainability", "Materials Science", "Environment", "Economics"],
-    category: "Environmental Science",
-    journal: "Sustainable Energy Journal",
-    status: "Revision Requested",
-    urgency: "High",
-    assignedAt: "2024-01-25",
-    deadline: "2024-02-20",
-    estimatedHours: 6,
-    reviewId: "REV-2024-005",
-    revisionRequested: true
+// Real reviews data from API
+const reviews = ref([])
+
+// Load user data and fetch reviews
+const loadUserAndReviews = async () => {
+  try {
+    loading.value = true
+    
+    // Get user from localStorage
+    const storedUser = localStorage.getItem('user')
+    if (!storedUser) {
+      console.error('No user found in localStorage')
+      error.value = 'Please log in to view your reviews'
+      return
+    }
+    
+    user.value = JSON.parse(storedUser)
+    
+    // Fetch reviews for this user
+    await fetchReviews()
+    
+  } catch (err) {
+    console.error('Failed to load user and reviews:', err)
+    error.value = 'Failed to load review data'
+  } finally {
+    loading.value = false
   }
-])
+}
+
+const fetchReviews = async () => {
+  if (!user.value || !user.value.wallet_address) {
+    console.error('No user or wallet address available')
+    return
+  }
+
+  try {
+    const response = await fetch(`http://localhost:3000/api/reviews/user/${user.value.wallet_address}`)
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        // User not found or no reviews - this is okay
+        reviews.value = []
+        return
+      }
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const reviewsData = await response.json()
+    
+    // Transform data to match the expected format
+    reviews.value = reviewsData.map(review => ({
+      id: review.id,
+      paperTitle: review.paper_title,
+      authors: review.authors,
+      abstract: review.abstract || 'No abstract provided',
+      keywords: review.keywords || [],
+      category: review.category || 'Other',
+      journal: review.journal || 'Unknown Journal',
+      status: review.status,
+      urgency: review.urgency,
+      assignedAt: review.assigned_at,
+      deadline: review.deadline,
+      estimatedHours: review.estimated_hours || 8,
+      reviewId: review.review_id,
+      progress: review.progress || 0,
+      completedAt: review.completed_at,
+      submittedAt: review.submitted_at,
+      rating: review.rating,
+      revisionRequested: review.revision_requested
+    }))
+    
+    error.value = null
+  } catch (err) {
+    console.error('Failed to fetch reviews:', err)
+    error.value = 'Failed to load reviews'
+    // Set empty array as fallback
+    reviews.value = []
+  }
+}
 
 // Options
 const statusOptions = [
@@ -545,22 +562,7 @@ const handlePageSizeChange = (newPageSize) => {
 }
 
 const refreshReviews = () => {
-  // Check for updated review data from localStorage
-  const updatedReviews = localStorage.getItem('updatedReviews')
-  if (updatedReviews) {
-    try {
-      const parsedReviews = JSON.parse(updatedReviews)
-      // Update the reviews data
-      reviews.value = parsedReviews
-      localStorage.removeItem('updatedReviews') // Clear after use
-      message.success('Reviews updated successfully')
-    } catch (error) {
-      console.error('Failed to parse updated reviews:', error)
-      message.error('Failed to update reviews')
-    }
-  } else {
-    message.success('Reviews refreshed')
-  }
+  loadUserAndReviews()
 }
 
 const viewReview = (review) => {
@@ -601,9 +603,7 @@ const handleReviewAction = (key) => {
 }
 
 onMounted(() => {
-  // Initialize page
-  // Load reviews data from localStorage if available
-  loadReviewsData()
+  loadUserAndReviews()
   
   // Check for updates when page becomes visible
   const handleVisibilityChange = () => {
@@ -614,28 +614,11 @@ onMounted(() => {
   
   document.addEventListener('visibilitychange', handleVisibilityChange)
   
-  // Also check for updates when page loads
-  refreshReviews()
-  
   // Cleanup event listener
   onUnmounted(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
   })
 })
-
-// Function to load reviews data from localStorage
-const loadReviewsData = () => {
-  try {
-    const savedReviews = localStorage.getItem('reviewsData')
-    if (savedReviews) {
-      const parsedReviews = JSON.parse(savedReviews)
-      reviews.value = parsedReviews
-      console.log('Loaded reviews from localStorage:', parsedReviews.length, 'reviews')
-    }
-  } catch (error) {
-    console.error('Failed to load reviews from localStorage:', error)
-  }
-}
 </script>
 
 <style scoped>

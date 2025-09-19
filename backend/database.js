@@ -395,6 +395,150 @@ const initializeDatabase = async () => {
         await db.runAsync(createDatasetUsageTableSql);
         console.log("Dataset usage table created or already exists.");
 
+        // Create Reviews Table
+        const createReviewsTableSql = `
+            CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_title TEXT NOT NULL,
+                authors TEXT NOT NULL, -- JSON array of author names
+                abstract TEXT,
+                keywords TEXT, -- JSON array of keywords
+                category TEXT,
+                journal TEXT,
+                status TEXT NOT NULL DEFAULT 'Pending', -- Pending, In Progress, Under Review, Completed, Revision Requested
+                urgency TEXT NOT NULL DEFAULT 'Medium', -- Low, Medium, High
+                reviewer_id INTEGER NOT NULL,
+                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deadline TIMESTAMP,
+                estimated_hours INTEGER DEFAULT 8,
+                review_id TEXT UNIQUE,
+                progress INTEGER DEFAULT 0, -- 0-100 percentage
+                completed_at TIMESTAMP,
+                submitted_at TIMESTAMP,
+                rating REAL, -- 1.0-5.0 rating
+                review_content TEXT, -- The actual review content
+                revision_requested BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (reviewer_id) REFERENCES users (id)
+            )
+        `;
+        await db.runAsync(createReviewsTableSql);
+        console.log("Reviews table created or already exists.");
+
+        // Create Citations Table
+        const createCitationsTableSql = `
+            CREATE TABLE IF NOT EXISTS citations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                citing_paper_title TEXT NOT NULL,
+                citing_authors TEXT, -- JSON array of author names
+                cited_paper_title TEXT NOT NULL,
+                cited_authors TEXT, -- JSON array of author names
+                citation_context TEXT, -- The context where the citation appears
+                citation_type TEXT DEFAULT 'reference', -- reference, mention, comparison
+                user_id INTEGER, -- User who owns the cited paper
+                publication_id INTEGER, -- Reference to the publication being cited
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (publication_id) REFERENCES publications (id)
+            )
+        `;
+        await db.runAsync(createCitationsTableSql);
+        console.log("Citations table created or already exists.");
+
+        // Create Publications Table
+        const createPublicationsTableSql = `
+            CREATE TABLE IF NOT EXISTS publications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL, -- JSON array of author names
+                abstract TEXT,
+                keywords TEXT, -- JSON array of keywords
+                category TEXT,
+                status TEXT NOT NULL DEFAULT 'Draft', -- Draft, Under Review, Revision Required, Published, Preprint
+                author_id INTEGER NOT NULL, -- User who authored/owns this publication
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                published_at TIMESTAMP,
+                submitted_at TIMESTAMP,
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                doi TEXT,
+                citation_count INTEGER DEFAULT 0,
+                download_count INTEGER DEFAULT 0,
+                review_deadline TIMESTAMP,
+                peer_review_id TEXT,
+                review_comments TEXT,
+                preprint_server TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (author_id) REFERENCES users (id)
+            )
+        `;
+        await db.runAsync(createPublicationsTableSql);
+        console.log("Publications table created or already exists.");
+
+        // Check and add new columns for publications table if needed
+        const publicationTableInfo = await db.allAsync("PRAGMA table_info(publications)");
+        
+        // Add views column if not exists
+        if (!publicationTableInfo.find(c => c.name === 'views')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN views INTEGER DEFAULT 0");
+            console.log("Migration successful: Added 'views' column to 'publications' table.");
+        }
+        
+        // Add shares column if not exists
+        if (!publicationTableInfo.find(c => c.name === 'shares')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN shares INTEGER DEFAULT 0");
+            console.log("Migration successful: Added 'shares' column to 'publications' table.");
+        }
+        
+        // Add import-specific columns if not exists
+        if (!publicationTableInfo.find(c => c.name === 'is_imported')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN is_imported BOOLEAN DEFAULT FALSE");
+            console.log("Migration successful: Added 'is_imported' column to 'publications' table.");
+        }
+        
+        if (!publicationTableInfo.find(c => c.name === 'original_url')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN original_url TEXT");
+            console.log("Migration successful: Added 'original_url' column to 'publications' table.");
+        }
+        
+        if (!publicationTableInfo.find(c => c.name === 'publisher')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN publisher TEXT");
+            console.log("Migration successful: Added 'publisher' column to 'publications' table.");
+        }
+        
+        if (!publicationTableInfo.find(c => c.name === 'volume')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN volume TEXT");
+            console.log("Migration successful: Added 'volume' column to 'publications' table.");
+        }
+        
+        if (!publicationTableInfo.find(c => c.name === 'impact_factor')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN impact_factor REAL");
+            console.log("Migration successful: Added 'impact_factor' column to 'publications' table.");
+        }
+        
+        if (!publicationTableInfo.find(c => c.name === 'import_notes')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN import_notes TEXT");
+            console.log("Migration successful: Added 'import_notes' column to 'publications' table.");
+        }
+
+        // Add PDF-related columns if not exists
+        if (!publicationTableInfo.find(c => c.name === 'pdf_path')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN pdf_path TEXT");
+            console.log("Migration successful: Added 'pdf_path' column to 'publications' table.");
+        }
+        if (!publicationTableInfo.find(c => c.name === 'pdf_file_name')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN pdf_file_name TEXT");
+            console.log("Migration successful: Added 'pdf_file_name' column to 'publications' table.");
+        }
+        if (!publicationTableInfo.find(c => c.name === 'pdf_file_size')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN pdf_file_size INTEGER");
+            console.log("Migration successful: Added 'pdf_file_size' column to 'publications' table.");
+        }
+        if (!publicationTableInfo.find(c => c.name === 'pdf_mime_type')) {
+            await db.runAsync("ALTER TABLE publications ADD COLUMN pdf_mime_type TEXT");
+            console.log("Migration successful: Added 'pdf_mime_type' column to 'publications' table.");
+        }
+
     } catch (err) {
         console.error("Error during database initialization:", err.message);
     }

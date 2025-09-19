@@ -393,6 +393,16 @@ const fetchCurrentUser = async () => {
 const fetchDataset = async () => {
   try {
     console.log('Fetching dataset with ID:', datasetId.value);
+    
+    // Test server connection first
+    try {
+      await axios.get('http://localhost:3000/api/publications/test')
+      console.log('Server connection test passed')
+    } catch (testError) {
+      console.error('Server connection test failed:', testError)
+      throw new Error('Backend server is not running or not accessible')
+    }
+    
     // Use explore endpoint for public access
     const response = await axios.get(`http://localhost:3000/api/datasets/explore/${datasetId.value}`)
     console.log('Dataset response:', response.data);
@@ -400,20 +410,34 @@ const fetchDataset = async () => {
     
     // Log view if user is authenticated
     if (currentUser.value?.wallet_address) {
-      await axios.post(`http://localhost:3000/api/datasets/${datasetId.value}/usage`, {
-        action_type: 'view',
-        wallet_address: currentUser.value.wallet_address
-      })
+      try {
+        await axios.post(`http://localhost:3000/api/datasets/${datasetId.value}/usage`, {
+          action_type: 'view',
+          wallet_address: currentUser.value.wallet_address
+        })
+        console.log('Usage logged successfully')
+      } catch (usageError) {
+        console.warn('Failed to log usage:', usageError)
+        // Don't throw error for usage logging failure
+      }
     }
   } catch (error) {
     console.error('Failed to fetch dataset:', error)
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      config: error.config
+    })
     
-    if (error.response?.status === 403) {
+    if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+      message.error('Cannot connect to server. Please make sure the backend is running.')
+    } else if (error.response?.status === 403) {
       message.error('This dataset is private and not accessible.')
     } else if (error.response?.status === 404) {
       message.error('Dataset not found. Please check the dataset ID and try again.')
     } else {
-      message.error('Failed to load dataset. Please try again later.')
+      message.error(`Failed to load dataset: ${error.message}`)
     }
     
     // Don't auto-redirect, let user decide what to do

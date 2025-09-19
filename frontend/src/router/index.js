@@ -67,6 +67,12 @@ const routes = [
         name: 'ExploreDatasetDetail',
         component: () => import('../views/ExploreDatasetDetail.vue'),
         meta: { title: 'Dataset Details' }
+      },
+      {
+        path: 'publications/:publication_id',
+        name: 'ExplorePublicationDetail',
+        component: () => import('../views/ExplorePublicationDetail.vue'),
+        meta: { title: 'Publication Details' }
       }
     ]
   },
@@ -239,6 +245,12 @@ const routes = [
         name: 'PaperSubmit',
         component: () => import('../views/papers/PaperSubmit.vue'),
         meta: { title: 'Submit Paper' }
+      },
+      {
+        path: 'import',
+        name: 'PaperImport',
+        component: () => import('../views/papers/PaperImport.vue'),
+        meta: { title: 'Import Published Paper' }
       },
       {
         path: ':paper_id',

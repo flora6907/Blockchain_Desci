@@ -205,37 +205,41 @@
           </div>
         </template>
 
-        <!-- Publication Card Content (Placeholder) -->
+        <!-- Publication Card Content -->
         <template v-if="item.type === 'publication'">
           <div class="card-header">
             <div class="category-tag">{{ item.category || 'Research' }}</div>
-            <n-tag type="info" round size="small">
+            <n-tag :type="getPublicationStatusType(item.status)" round size="small">
               <template #icon>
                 <n-icon :component="BookOutline" />
               </template>
-              Publication
+              {{ item.status }}
             </n-tag>
           </div>
 
           <h2 class="item-title">{{ item.title }}</h2>
-          <div class="item-subtitle">By {{ item.authors }}</div>
+          <div class="item-subtitle">By {{ Array.isArray(item.authors) ? item.authors.join(', ') : item.authors }}</div>
           
           <p class="item-description">{{ item.abstract || 'No abstract provided.' }}</p>
 
           <div class="item-info">
             <div class="info-row">
               <div class="info-label">Published:</div>
-              <div class="info-value">{{ formatDate(item.published_date) }}</div>
+              <div class="info-value">{{ formatDate(item.publishedAt || item.createdAt) }}</div>
             </div>
             
             <div class="stats-list">
-              <div class="stat-row">
-                <div class="stat-label">Journal:</div>
-                <div class="stat-value">{{ item.journal || 'Unknown' }}</div>
+              <div class="stat-row" v-if="item.doi">
+                <div class="stat-label">DOI:</div>
+                <div class="stat-value">{{ item.doi }}</div>
               </div>
               <div class="stat-row">
                 <div class="stat-label">Citations:</div>
-                <div class="stat-value">{{ item.citations || 0 }}</div>
+                <div class="stat-value">{{ item.citationCount || 0 }}</div>
+              </div>
+              <div class="stat-row">
+                <div class="stat-label">Downloads:</div>
+                <div class="stat-value">{{ item.downloadCount || 0 }}</div>
               </div>
             </div>
           </div>
@@ -378,6 +382,23 @@ const getStatusType = (status) => {
   }
 };
 
+const getPublicationStatusType = (status) => {
+  switch (status) {
+    case 'Published':
+      return 'success';
+    case 'Preprint':
+      return 'info';
+    case 'Under Review':
+      return 'warning';
+    case 'Draft':
+      return 'default';
+    case 'Revision Required':
+      return 'error';
+    default:
+      return 'default';
+  }
+};
+
 const getPrivacyType = (privacyLevel) => {
   switch (privacyLevel) {
     case 'public': return 'info';
@@ -500,8 +521,7 @@ const goToItem = (item) => {
       router.push(`/explore/datasets/${item.id}`);
       break;
     case 'publication':
-      // TODO: Add publication route when implemented
-      message.info('Publication details coming soon');
+      router.push(`/explore/publications/${item.id}`);
       break;
   }
 };
@@ -666,6 +686,35 @@ const fetchCurrentUser = async () => {
   }
 };
 
+// Helper: exclude items owned by current user or where the user collaborates
+const excludeOwnAndCollaborations = (items, type) => {
+  if (!currentUser.value) return items;
+  const userId = currentUser.value.id;
+  const userWallet = currentUser.value.wallet_address;
+  return (items || []).filter(item => {
+    // Projects: may have owner_id / owner_wallet_address / user_role
+    if (type === 'project') {
+      if (item.owner_id && item.owner_id === userId) return false;
+      if (item.owner_wallet_address && item.owner_wallet_address === userWallet) return false;
+      if (item.user_role && item.user_role !== 'viewer' && item.user_role !== null && item.user_role !== undefined) return false;
+      return true;
+    }
+    // Datasets: usually have owner_id / owner_wallet_address
+    if (type === 'dataset') {
+      if (item.owner_id && item.owner_id === userId) return false;
+      if (item.owner_wallet_address && item.owner_wallet_address === userWallet) return false;
+      return true;
+    }
+    // Publications: authored by authorWalletAddress / author_id
+    if (type === 'publication') {
+      if (item.author_id && item.author_id === userId) return false;
+      if (item.authorWalletAddress && item.authorWalletAddress === userWallet) return false;
+      return true;
+    }
+    return true;
+  });
+};
+
 const fetchPublicProjects = async () => {
   try {
     const response = await axios.get('http://localhost:3000/api/projects/explore/public');
@@ -687,10 +736,18 @@ const fetchPublicDatasets = async () => {
 
 const fetchPublicPublications = async () => {
   try {
-    // TODO: Implement when publications API is ready
-    allPublications.value = [];
+    const response = await axios.get('http://localhost:3000/api/publications/explore/public');
+    allPublications.value = response.data.map(publication => ({
+      ...publication,
+      type: 'publication',
+      // Ensure compatibility with the display format
+      owner: publication.authorUsername || '@' + (publication.authorWalletAddress?.slice(2, 8) || 'unknown'),
+      updatedAt: publication.publishedAt || publication.createdAt,
+      description: publication.abstract
+    }));
   } catch (error) {
     console.error('Failed to fetch public publications:', error);
+    allPublications.value = [];
   }
 };
 
@@ -705,7 +762,7 @@ const fetchRecommendations = async () => {
       : `http://localhost:3000/api/projects/explore/recommendations?limit=${pagination.value.projects.limit}&offset=0`;
     
     const response = await axios.get(endpoint);
-    projects.value = response.data;
+    projects.value = excludeOwnAndCollaborations(response.data, 'project');
     
     // Update pagination state
     if (response.data.length < pagination.value.projects.limit) {
@@ -715,7 +772,7 @@ const fetchRecommendations = async () => {
     console.error('Failed to fetch project recommendations:', error);
     message.error('Failed to load project recommendations');
     // Fallback to regular projects
-    projects.value = [...allProjects.value];
+    projects.value = excludeOwnAndCollaborations([...allProjects.value], 'project');
   } finally {
     isLoading.value = false;
   }
@@ -733,7 +790,7 @@ const fetchDatasetRecommendations = async () => {
       : `http://localhost:3000/api/datasets/explore/recommendations?limit=${pagination.value.datasets.limit}&offset=0`;
     
     const response = await axios.get(endpoint);
-    datasets.value = response.data;
+    datasets.value = excludeOwnAndCollaborations(response.data, 'dataset');
     
     // Update pagination state
     if (response.data.length < pagination.value.datasets.limit) {
@@ -743,7 +800,7 @@ const fetchDatasetRecommendations = async () => {
     console.error('Failed to fetch dataset recommendations:', error);
     message.error('Failed to load dataset recommendations');
     // Fallback to regular datasets
-    datasets.value = [...allDatasets.value];
+    datasets.value = excludeOwnAndCollaborations([...allDatasets.value], 'dataset');
   } finally {
     isLoading.value = false;
   }
@@ -754,8 +811,15 @@ const fetchPublicationRecommendations = async () => {
     isLoading.value = true;
     // Reset data arrays
     publications.value = [];
-    // TODO: Implement when publications API is ready
-    publications.value = [...allPublications.value];
+    const response = await axios.get('http://localhost:3000/api/publications/explore/public');
+    const mapped = (response.data || []).map(publication => ({
+      ...publication,
+      type: 'publication',
+      owner: publication.authorUsername || '@' + (publication.authorWalletAddress?.slice(2, 8) || 'unknown'),
+      updatedAt: publication.publishedAt || publication.createdAt,
+      description: publication.abstract
+    }));
+    publications.value = excludeOwnAndCollaborations(mapped, 'publication');
   } catch (error) {
     console.error('Failed to fetch publication recommendations:', error);
     message.error('Failed to load publication recommendations');
@@ -783,26 +847,31 @@ const fetchAllRecommendations = async () => {
     const projectEndpoint = currentUser.value 
       ? `http://localhost:3000/api/projects/explore/recommendations?user_id=${currentUser.value.id}&limit=${pagination.value.projects.limit}&offset=0`
       : `http://localhost:3000/api/projects/explore/recommendations?limit=${pagination.value.projects.limit}&offset=0`;
-    console.log('Project endpoint:', projectEndpoint);
     promises.push(axios.get(projectEndpoint));
     
     // Fetch dataset recommendations
     const datasetEndpoint = currentUser.value 
       ? `http://localhost:3000/api/datasets/explore/recommendations?user_id=${currentUser.value.id}&limit=${pagination.value.datasets.limit}&offset=0`
       : `http://localhost:3000/api/datasets/explore/recommendations?limit=${pagination.value.datasets.limit}&offset=0`;
-    console.log('Dataset endpoint:', datasetEndpoint);
     promises.push(axios.get(datasetEndpoint));
+
+    // Fetch publications (public)
+    promises.push(axios.get('http://localhost:3000/api/publications/explore/public'));
     
-    const [projectResponse, datasetResponse] = await Promise.all(promises);
+    const [projectResponse, datasetResponse, publicationResponse] = await Promise.all(promises);
     
-    console.log('Project response:', projectResponse.data.length, 'items');
-    console.log('Dataset response:', datasetResponse.data.length, 'items');
-    
-    // Set the individual arrays for mixed display
-    projects.value = projectResponse.data || [];
-    datasets.value = datasetResponse.data || [];
-    publications.value = []; // TODO: Add when publications API is ready
-    
+    // Set arrays with filtering
+    projects.value = excludeOwnAndCollaborations(projectResponse.data || [], 'project');
+    datasets.value = excludeOwnAndCollaborations(datasetResponse.data || [], 'dataset');
+    const mappedPubs = (publicationResponse.data || []).map(publication => ({
+      ...publication,
+      type: 'publication',
+      owner: publication.authorUsername || '@' + (publication.authorWalletAddress?.slice(2, 8) || 'unknown'),
+      updatedAt: publication.publishedAt || publication.createdAt,
+      description: publication.abstract
+    }));
+    publications.value = excludeOwnAndCollaborations(mappedPubs, 'publication');
+
     // Update pagination states
     if ((projectResponse.data || []).length < pagination.value.projects.limit) {
       pagination.value.projects.hasMore = false;
@@ -810,18 +879,18 @@ const fetchAllRecommendations = async () => {
     if ((datasetResponse.data || []).length < pagination.value.datasets.limit) {
       pagination.value.datasets.hasMore = false;
     }
+    // Publications are loaded as a single page for now
+    pagination.value.publications.hasMore = false;
     
     // Update hasMoreData based on all content types
-    hasMoreData.value = pagination.value.projects.hasMore || pagination.value.datasets.hasMore;
-    
-    console.log('Final data counts - Projects:', projects.value.length, 'Datasets:', datasets.value.length);
+    hasMoreData.value = pagination.value.projects.hasMore || pagination.value.datasets.hasMore || pagination.value.publications.hasMore;
     
   } catch (error) {
     console.error('Failed to fetch all recommendations:', error);
     message.error('Failed to load recommendations');
-    // Fallback to existing data
-    projects.value = [...allProjects.value].slice(0, 10);
-    datasets.value = [...allDatasets.value].slice(0, 10);
+    // Fallback to existing data (also filtered)
+    projects.value = excludeOwnAndCollaborations([...allProjects.value].slice(0, 10), 'project');
+    datasets.value = excludeOwnAndCollaborations([...allDatasets.value].slice(0, 10), 'dataset');
     publications.value = [];
   } finally {
     isLoading.value = false;

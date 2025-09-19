@@ -1009,4 +1009,35 @@ router.get('/:id/download', async (req, res) => {
   }
 });
 
+// Log dataset usage
+router.post('/:id/usage', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action_type, wallet_address } = req.body;
+    
+    if (!action_type || !wallet_address) {
+      return res.status(400).json({ error: 'action_type and wallet_address are required' });
+    }
+    
+    const user = await getUserByWallet(wallet_address);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Check if dataset exists
+    const dataset = await db.getAsync('SELECT id FROM datasets WHERE id = ?', [id]);
+    if (!dataset) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    // Log the usage
+    await logDatasetUsage(id, user.id, action_type);
+    
+    res.json({ message: 'Usage logged successfully' });
+  } catch (error) {
+    console.error('Failed to log dataset usage:', error);
+    res.status(500).json({ error: 'Failed to log usage' });
+  }
+});
+
 module.exports = router; 

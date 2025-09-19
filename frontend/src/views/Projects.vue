@@ -45,7 +45,7 @@
           <div class="project-meta">
             <div class="meta-item">
               <n-icon :component="PersonOutline" />
-              <span>{{ project.owner_username || '@' + project.owner_wallet_address?.slice(2, 8) }}</span>
+              <span>{{ project.owner_username || project.owner_wallet_address?.slice(0, 6) + '...' + project.owner_wallet_address?.slice(-4) }}</span>
             </div>
             <div class="meta-item">
               <n-icon :component="TimeOutline" />

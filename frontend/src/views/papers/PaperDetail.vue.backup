@@ -90,10 +90,10 @@
                 <n-statistic label="Views" :value="paper.views || 0" />
               </n-gi>
               <n-gi>
-                <n-statistic label="Downloads" :value="paper.downloadCount || 0" />
+                <n-statistic label="Downloads" :value="paper.downloads || 0" />
               </n-gi>
               <n-gi>
-                <n-statistic label="Citations" :value="paper.citationCount || 0" />
+                <n-statistic label="Citations" :value="paper.citations || 0" />
               </n-gi>
               <n-gi>
                 <n-statistic label="Shares" :value="paper.shares || 0" />
@@ -298,46 +298,11 @@ const goBack = () => {
 const fetchPaper = async () => {
   try {
     isLoading.value = true
-    const publicationId = route.params.paper_id
-    
-    // Fetch from actual backend API
-    const response = await fetch(`http://localhost:3000/api/publications/${publicationId}`)
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const publicationData = await response.json()
-    
-    // Transform the data to match the expected format
-    paper.value = {
-      id: publicationData.id,
-      title: publicationData.title,
-      authors: Array.isArray(publicationData.authors) 
-        ? publicationData.authors.map(author => 
-            typeof author === 'string' 
-              ? { name: author, affiliation: '', email: '' }
-              : author
-          )
-        : [],
-      abstract: publicationData.abstract,
-      keywords: Array.isArray(publicationData.keywords) ? publicationData.keywords : [],
-      category: publicationData.category,
-      status: publicationData.status,
-      createdAt: publicationData.createdAt,
-      publishedAt: publicationData.publishedAt,
-      venue: publicationData.venue || '',
-      doi: publicationData.doi,
-      license: 'cc-by', // Default license
-      funding: '', // Not in DB yet
-      views: publicationData.views || 0,
-      downloadCount: publicationData.downloadCount || 0,
-      citationCount: publicationData.citationCount || 0,
-      shares: publicationData.shares || 0,
-      peerReviewId: publicationData.peerReviewId
-    }
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    paper.value = mockPaper
   } catch (error) {
     console.error('Failed to fetch paper:', error)
-    message.error('Failed to load paper details')
     paper.value = null
   } finally {
     isLoading.value = false

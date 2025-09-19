@@ -1,0 +1,387 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../database');
+
+// Get all public publications for explore page
+router.get('/explore/public', async (req, res) => {
+  try {
+    const { limit = 20, offset = 0 } = req.query;
+    
+    // Get all published publications (only public ones)
+    const publications = await db.allAsync(`
+      SELECT 
+        p.*,
+        u.username as author_username,
+        u.wallet_address as author_wallet_address
+      FROM publications p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.status IN ('Published', 'Preprint')
+      ORDER BY p.created_at DESC
+      LIMIT ? OFFSET ?
+    `, [parseInt(limit), parseInt(offset)]);
+
+    // Parse JSON fields and format data
+    const formattedPublications = publications.map(publication => ({
+      id: publication.id,
+      title: publication.title,
+      authors: JSON.parse(publication.authors || '[]'),
+      abstract: publication.abstract,
+      keywords: JSON.parse(publication.keywords || '[]'),
+      category: publication.category,
+      status: publication.status,
+      createdAt: publication.created_at,
+      publishedAt: publication.published_at,
+      submittedAt: publication.submitted_at,
+      lastModified: publication.last_modified,
+      doi: publication.doi,
+      citationCount: publication.citation_count || 0,
+      downloadCount: publication.download_count || 0,
+      reviewDeadline: publication.review_deadline,
+      peerReviewId: publication.peer_review_id,
+      reviewComments: publication.review_comments,
+      preprintServer: publication.preprint_server,
+      authorUsername: publication.author_username,
+      authorWalletAddress: publication.author_wallet_address
+    }));
+
+    res.json(formattedPublications);
+  } catch (error) {
+    console.error('Failed to get public publications:', error);
+    res.status(500).json({ error: 'Failed to get public publications' });
+  }
+});
+
+// Get all publications for a user (by wallet address)
+router.get('/user/:walletAddress', async (req, res) => {
+  const { walletAddress } = req.params;
+  
+  try {
+    // Get user by wallet address
+    const user = await db.getAsync('SELECT id FROM users WHERE wallet_address = ?', [walletAddress]);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get all publications authored by this user
+    const publications = await db.allAsync(`
+      SELECT 
+        p.*,
+        u.username as author_username,
+        u.wallet_address as author_wallet_address
+      FROM publications p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.author_id = ?
+      ORDER BY p.created_at DESC
+    `, [user.id]);
+
+    // Parse JSON fields and format data
+    const formattedPublications = publications.map(publication => ({
+      id: publication.id,
+      title: publication.title,
+      authors: JSON.parse(publication.authors || '[]'),
+      abstract: publication.abstract,
+      keywords: JSON.parse(publication.keywords || '[]'),
+      category: publication.category,
+      status: publication.status,
+      createdAt: publication.created_at,
+      publishedAt: publication.published_at,
+      submittedAt: publication.submitted_at,
+      lastModified: publication.last_modified,
+      doi: publication.doi,
+      citationCount: publication.citation_count || 0,
+      downloadCount: publication.download_count || 0,
+      reviewDeadline: publication.review_deadline,
+      peerReviewId: publication.peer_review_id,
+      reviewComments: publication.review_comments,
+      preprintServer: publication.preprint_server
+    }));
+
+    res.json(formattedPublications);
+  } catch (error) {
+    console.error('Failed to get user publications:', error);
+    res.status(500).json({ error: 'Failed to get user publications' });
+  }
+});
+
+// Get a specific publication by ID
+router.get('/:publicationId', async (req, res) => {
+  const { publicationId } = req.params;
+  
+  try {
+    const publication = await db.getAsync(`
+      SELECT 
+        p.*,
+        u.username as author_username,
+        u.wallet_address as author_wallet_address
+      FROM publications p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.id = ?
+    `, [publicationId]);
+
+    if (!publication) {
+      return res.status(404).json({ error: 'Publication not found' });
+    }
+
+    // Parse JSON fields and format data
+    const formattedPublication = {
+      id: publication.id,
+      title: publication.title,
+      authors: JSON.parse(publication.authors || '[]'),
+      abstract: publication.abstract,
+      keywords: JSON.parse(publication.keywords || '[]'),
+      category: publication.category,
+      status: publication.status,
+      createdAt: publication.created_at,
+      publishedAt: publication.published_at,
+      submittedAt: publication.submitted_at,
+      lastModified: publication.last_modified,
+      doi: publication.doi,
+      citationCount: publication.citation_count || 0,
+      downloadCount: publication.download_count || 0,
+      reviewDeadline: publication.review_deadline,
+      peerReviewId: publication.peer_review_id,
+      reviewComments: publication.review_comments,
+      preprintServer: publication.preprint_server
+    };
+
+    res.json(formattedPublication);
+  } catch (error) {
+    console.error('Failed to get publication:', error);
+    res.status(500).json({ error: 'Failed to get publication' });
+  }
+});
+
+// Create a new publication
+router.post('/', async (req, res) => {
+  const {
+    title,
+    authors,
+    abstract,
+    keywords,
+    category,
+    status = 'Draft',
+    author_wallet_address,
+    doi,
+    peer_review_id,
+    review_comments,
+    preprint_server
+  } = req.body;
+
+  if (!title || !authors || !author_wallet_address) {
+    return res.status(400).json({ error: 'Title, authors, and author wallet address are required' });
+  }
+
+  try {
+    // Get author by wallet address
+    const author = await db.getAsync('SELECT id FROM users WHERE wallet_address = ?', [author_wallet_address]);
+    if (!author) {
+      return res.status(404).json({ error: 'Author not found' });
+    }
+
+    // Insert publication
+    const result = await db.runAsync(`
+      INSERT INTO publications (
+        title, authors, abstract, keywords, category, status, author_id,
+        doi, peer_review_id, review_comments, preprint_server,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `, [
+      title,
+      JSON.stringify(authors),
+      abstract,
+      JSON.stringify(keywords || []),
+      category,
+      status,
+      author.id,
+      doi,
+      peer_review_id,
+      review_comments,
+      preprint_server
+    ]);
+
+    // Get the created publication
+    const newPublication = await db.getAsync(`
+      SELECT 
+        p.*,
+        u.username as author_username,
+        u.wallet_address as author_wallet_address
+      FROM publications p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.id = ?
+    `, [result.lastID]);
+
+    // Format the response
+    const formattedPublication = {
+      id: newPublication.id,
+      title: newPublication.title,
+      authors: JSON.parse(newPublication.authors || '[]'),
+      abstract: newPublication.abstract,
+      keywords: JSON.parse(newPublication.keywords || '[]'),
+      category: newPublication.category,
+      status: newPublication.status,
+      createdAt: newPublication.created_at,
+      publishedAt: newPublication.published_at,
+      submittedAt: newPublication.submitted_at,
+      lastModified: newPublication.last_modified,
+      doi: newPublication.doi,
+      citationCount: newPublication.citation_count || 0,
+      downloadCount: newPublication.download_count || 0,
+      reviewDeadline: newPublication.review_deadline,
+      peerReviewId: newPublication.peer_review_id,
+      reviewComments: newPublication.review_comments,
+      preprintServer: newPublication.preprint_server
+    };
+
+    res.status(201).json(formattedPublication);
+  } catch (error) {
+    console.error('Failed to create publication:', error);
+    res.status(500).json({ error: 'Failed to create publication' });
+  }
+});
+
+// Update publication
+router.put('/:publicationId', async (req, res) => {
+  const { publicationId } = req.params;
+  const {
+    title,
+    authors,
+    abstract,
+    keywords,
+    category,
+    status,
+    doi,
+    peer_review_id,
+    review_comments,
+    preprint_server,
+    published_at,
+    submitted_at
+  } = req.body;
+
+  try {
+    let updateFields = [];
+    let params = [];
+
+    if (title !== undefined) {
+      updateFields.push('title = ?');
+      params.push(title);
+    }
+    if (authors !== undefined) {
+      updateFields.push('authors = ?');
+      params.push(JSON.stringify(authors));
+    }
+    if (abstract !== undefined) {
+      updateFields.push('abstract = ?');
+      params.push(abstract);
+    }
+    if (keywords !== undefined) {
+      updateFields.push('keywords = ?');
+      params.push(JSON.stringify(keywords));
+    }
+    if (category !== undefined) {
+      updateFields.push('category = ?');
+      params.push(category);
+    }
+    if (status !== undefined) {
+      updateFields.push('status = ?');
+      params.push(status);
+    }
+    if (doi !== undefined) {
+      updateFields.push('doi = ?');
+      params.push(doi);
+    }
+    if (peer_review_id !== undefined) {
+      updateFields.push('peer_review_id = ?');
+      params.push(peer_review_id);
+    }
+    if (review_comments !== undefined) {
+      updateFields.push('review_comments = ?');
+      params.push(review_comments);
+    }
+    if (preprint_server !== undefined) {
+      updateFields.push('preprint_server = ?');
+      params.push(preprint_server);
+    }
+    if (published_at !== undefined) {
+      updateFields.push('published_at = ?');
+      params.push(published_at);
+    }
+    if (submitted_at !== undefined) {
+      updateFields.push('submitted_at = ?');
+      params.push(submitted_at);
+    }
+
+    updateFields.push('updated_at = datetime(\'now\')');
+    updateFields.push('last_modified = datetime(\'now\')');
+    params.push(publicationId);
+
+    const query = `
+      UPDATE publications 
+      SET ${updateFields.join(', ')} 
+      WHERE id = ?
+    `;
+
+    const result = await db.runAsync(query, params);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Publication not found' });
+    }
+
+    // Get updated publication
+    const updatedPublication = await db.getAsync(`
+      SELECT 
+        p.*,
+        u.username as author_username,
+        u.wallet_address as author_wallet_address
+      FROM publications p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.id = ?
+    `, [publicationId]);
+
+    // Format the response
+    const formattedPublication = {
+      id: updatedPublication.id,
+      title: updatedPublication.title,
+      authors: JSON.parse(updatedPublication.authors || '[]'),
+      abstract: updatedPublication.abstract,
+      keywords: JSON.parse(updatedPublication.keywords || '[]'),
+      category: updatedPublication.category,
+      status: updatedPublication.status,
+      createdAt: updatedPublication.created_at,
+      publishedAt: updatedPublication.published_at,
+      submittedAt: updatedPublication.submitted_at,
+      lastModified: updatedPublication.last_modified,
+      doi: updatedPublication.doi,
+      citationCount: updatedPublication.citation_count || 0,
+      downloadCount: updatedPublication.download_count || 0,
+      reviewDeadline: updatedPublication.review_deadline,
+      peerReviewId: updatedPublication.peer_review_id,
+      reviewComments: updatedPublication.review_comments,
+      preprintServer: updatedPublication.preprint_server
+    };
+
+    res.json(formattedPublication);
+  } catch (error) {
+    console.error('Failed to update publication:', error);
+    res.status(500).json({ error: 'Failed to update publication' });
+  }
+});
+
+// Delete a publication
+router.delete('/:publicationId', async (req, res) => {
+  const { publicationId } = req.params;
+
+  try {
+    const result = await db.runAsync('DELETE FROM publications WHERE id = ?', [publicationId]);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Publication not found' });
+    }
+
+    res.json({ message: 'Publication deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete publication:', error);
+    res.status(500).json({ error: 'Failed to delete publication' });
+  }
+});
+
+module.exports = router; 

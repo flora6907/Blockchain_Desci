@@ -428,16 +428,19 @@ router.get('/', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get all projects where user is a collaborator
+    // Get all projects where user is owner or collaborator
     const projects = await db.allAsync(`
-      SELECT p.*, u.username as owner_username, u.wallet_address as owner_wallet_address,
-             pc.role as user_role
+      SELECT DISTINCT p.*, u.username as owner_username, u.wallet_address as owner_wallet_address,
+             CASE 
+               WHEN p.owner_id = ? THEN 'owner'
+               ELSE pc.role
+             END as user_role
       FROM projects p
-      JOIN project_collaborators pc ON p.id = pc.project_id
       JOIN users u ON p.owner_id = u.id
-      WHERE pc.user_id = ?
+      LEFT JOIN project_collaborators pc ON p.id = pc.project_id AND pc.user_id = ?
+      WHERE p.owner_id = ? OR pc.user_id = ?
       ORDER BY p.updated_at DESC
-    `, [user.id]);
+    `, [user.id, user.id, user.id, user.id]);
 
     res.json(projects);
   } catch (error) {

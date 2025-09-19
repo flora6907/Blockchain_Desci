@@ -24,6 +24,8 @@ const projectRoutes = require('./routes/projects');
 const kanbanRoutes = require('./routes/kanban');
 const userRoutes = require('./routes/users');
 const datasetRoutes = require('./routes/datasets');
+const reviewRoutes = require('./routes/reviews');
+const publicationRoutes = require('./routes/publications');
 // We will move repository logic into projects.js, so this is no longer needed.
 
 // Routes
@@ -32,6 +34,8 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/kanban', kanbanRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/datasets', datasetRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/publications', publicationRoutes);
 
 
 app.get('/api/download/:filename', (req, res) => {

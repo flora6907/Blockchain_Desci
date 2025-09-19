@@ -500,39 +500,49 @@ const declineReview = () => {
   // TODO: Implement decline logic
 }
 
-// Lifecycle
-onMounted(async () => {
+// Load review data from backend API
+const loadReview = async () => {
+  isLoading.value = true
   try {
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    const reviewId = route.params.review_id
+    console.log('Loading review with ID:', reviewId)
     
-    const reviewId = parseInt(route.params.review_id)
+    // Call backend API to get review details
+    const response = await axios.get(`http://localhost:3000/api/reviews/${reviewId}`)
+    console.log('Review response:', response.data)
     
-    // First try to get from localStorage (updated data)
-    const savedReviews = localStorage.getItem('reviewsData')
-    if (savedReviews) {
-      try {
-        const parsedReviews = JSON.parse(savedReviews)
-        review.value = parsedReviews.find(r => r.id === reviewId)
-      } catch (error) {
-        console.error('Failed to parse saved reviews:', error)
-      }
-    }
-    
-    // Fallback to mock data if not found in localStorage
-    if (!review.value) {
-      review.value = mockReviews.find(r => r.id === reviewId)
-    }
+    review.value = response.data
     
     if (!review.value) {
       throw new Error('Review not found')
     }
   } catch (error) {
     console.error('Failed to load review:', error)
-    message.error('Failed to load review data')
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    })
+    
+    // Fallback to mock data for development
+    const reviewId = parseInt(route.params.review_id)
+    review.value = mockReviews.find(r => r.id === reviewId)
+    
+    if (!review.value) {
+      if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+        message.error('Cannot connect to server. Using mock data for demo.')
+      } else {
+        message.error(`Failed to load review data: ${error.message}`)
+      }
+    }
   } finally {
     isLoading.value = false
   }
+}
+
+// Lifecycle
+onMounted(async () => {
+  await loadReview()
 })
 </script>
 

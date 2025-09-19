@@ -13,6 +13,17 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['buffer'],
+    include: [
+      'buffer',
+      'bn.js',
+      'ethers/lib/utils',
+      'web3modal'
+    ],
+    exclude: []
   },
+  build: {
+    commonjsOptions: {
+      transformMixedEsModules: true
+    }
+  }
 })
